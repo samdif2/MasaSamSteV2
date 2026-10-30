@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { api, type MasanielloSession, type SessionState } from './lib/api';
+import {
+  api,
+  mapRowToSession,
+  formatPartiteToTSV,
+  type MasanielloSession,
+  type SessionState,
+  type PartitaItem,
+} from './lib/api';
 import {
   Trophy,
   AlertCircle,
@@ -847,45 +854,100 @@ export default function App() {
     
     setSyncStatus('saving');
     try {
-      // 1. Salva nel database (tabella masaniello_sessions con code, title e state)
-      const saved = await api.saveSession(code, stateToSave, resolvedTitle);
+      const client = getSupabaseClient();
+      if (!client) {
+        setSyncStatus('idle');
+        return;
+      }
+
+      const cassa = Number(stateToSave.config?.initialBankroll || 0);
+      const puntate = Number(stateToSave.config?.totalEvents || stateToSave.events?.length || 0);
+      const now = new Date().toISOString();
+
+      const payload = {
+        codice: code.trim().toUpperCase(),
+        titolo: resolvedTitle,
+        cassa: cassa,
+        puntate: puntate,
+        dettaglio_eventi: stateToSave,
+        updated_at: now,
+      };
+
+      // 1. Operazione di upsert sulla tabella masanielli con dettaglio_eventi in JSON
+      let { error: upsertError } = await client
+        .from('masanielli')
+        .upsert(payload, { onConflict: 'codice' });
+
+      if (upsertError) {
+        // Fallback update/insert se il vincolo onConflict ha nome differente
+        const { data: existing } = await client
+          .from('masanielli')
+          .select('codice')
+          .eq('codice', payload.codice)
+          .maybeSingle();
+
+        if (existing) {
+          const { error: updErr } = await client
+            .from('masanielli')
+            .update(payload)
+            .eq('codice', payload.codice);
+          upsertError = updErr;
+        } else {
+          const { error: insErr } = await client
+            .from('masanielli')
+            .insert(payload);
+          upsertError = insErr;
+        }
+      }
+
+      if (upsertError) {
+        throw new Error(`Errore Supabase (masanielli): ${upsertError.message}`);
+      }
+
+      // 2. Sincronizzazione della tabella 'partite' se presente testo partite
+      if (stateToSave.matchesListText && stateToSave.matchesListText.trim()) {
+        await syncPartiteToSupabase(stateToSave.matchesListText);
+      }
+
       lastSyncedJsonRef.current = json;
-      setLastSyncedAt(saved.updatedAt);
+      setLastSyncedAt(now);
       setSyncStatus('saved');
       setSyncError('');
-      updateLocalSessionsCache(saved);
-
-      // 2. Aggiorna tabella PostgreSQL masaniello_settings con i parametri attuali
-      api.saveSettings({
-        initial_bankroll: stateToSave.config.initialBankroll,
-        total_events_n: stateToSave.config.totalEvents,
-        expected_events_k: stateToSave.config.expectedWins,
-        average_odds: stateToSave.config.averageOdds,
-      }).catch(err => {
-        console.warn('Errore salvataggio masaniello_settings:', err);
+      updateLocalSessionsCache({
+        code: payload.codice,
+        title: resolvedTitle,
+        state: stateToSave,
+        updatedAt: now,
       });
-
-      // 3. Aggiorna tabella PostgreSQL raw_matches_list se presente testo partite
-      if (stateToSave.matchesListText && stateToSave.matchesListText.trim()) {
-        api.saveRawMatches(stateToSave.matchesListText).catch(err => {
-          console.warn('Errore salvataggio raw_matches_list:', err);
-        });
-      }
     } catch (err) {
       setSyncStatus('error');
-      setSyncError(err instanceof Error ? err.message : 'Errore di salvataggio');
+      setSyncError(err instanceof Error ? err.message : 'Errore durante il salvataggio su Supabase');
     }
   };
 
-  // Interroga il database e mostra la lista di tutti i Masanielli salvati in precedenza,
-  // ordinati rigorosamente dal più recente al più vecchio in base alla data/ora di salvataggio
+  // Recupera la lista dei Masanielli direttamente da Supabase con supabase.from('masanielli').select('*')
   const handleOpenSessionsList = async () => {
     setShowSessionsListModal(true);
     setLoadingSessionsList(true);
     setSessionsListError('');
     try {
-      const remoteSessions = await api.getAllSessions().catch(() => []);
-      
+      const client = getSupabaseClient();
+      let remoteSessions: MasanielloSession[] = [];
+      if (client) {
+        const { data, error } = await client
+          .from('masanielli')
+          .select('*')
+          .order('updated_at', { ascending: false });
+
+        if (error) {
+          throw new Error(`Errore Supabase: ${error.message}`);
+        }
+
+        if (Array.isArray(data)) {
+          remoteSessions = data.map(mapRowToSession);
+        }
+      }
+
       let localSessions: MasanielloSession[] = [];
       try {
         const raw = localStorage.getItem(SESSIONS_HISTORY_KEY);
@@ -919,19 +981,105 @@ export default function App() {
       });
 
       setSessionsList(sorted);
-    } catch {
-      setSessionsListError('Errore durante il recupero dei Masanielli.');
+    } catch (err: any) {
+      setSessionsListError(err?.message || 'Errore durante il recupero dei Masanielli da Supabase.');
     } finally {
       setLoadingSessionsList(false);
     }
   };
 
-  // Pull the latest version of the current code from the server
+  // Lettura diretta dalla tabella 'partite' di Supabase
+  const loadPartiteFromSupabase = async () => {
+    const client = getSupabaseClient();
+    if (!client) return;
+    try {
+      const { data, error } = await client
+        .from('partite')
+        .select('*');
+
+      if (error) {
+        console.warn('[Supabase partite] Errore lettura partite:', error.message);
+        return;
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        const tsv = formatPartiteToTSV(data);
+        if (tsv.trim()) {
+          setMatchesListText(tsv);
+          try { localStorage.setItem(MATCHES_LIST_STORAGE_KEY, tsv); } catch { /* ignore */ }
+        }
+      }
+    } catch (err) {
+      console.warn('[Supabase partite] Lettura non riuscita:', err);
+    }
+  };
+
+  // Inserimento e sincronizzazione diretta nella tabella 'partite' di Supabase
+  const syncPartiteToSupabase = async (tsvText: string) => {
+    const client = getSupabaseClient();
+    if (!client) return;
+    const items = parseMatchesList(tsvText);
+    if (items.length === 0) return;
+
+    const rows: PartitaItem[] = items.map(m => ({
+      data: m.date || '',
+      ora: m.time || '',
+      segno: m.market || '',
+      probabilita: m.probabilityRaw || (m.probability ? `${m.probability.toFixed(1)}%` : ''),
+      partita: m.match || '',
+      competizione: m.competition || '',
+      quota: Number(m.odds) || 1.60,
+      value_edge: m.valueEdge || '',
+      raw_line: m.rawLine || '',
+    }));
+
+    try {
+      try {
+        await client.from('partite').delete().gte('id', 0);
+      } catch { /* ignore */ }
+      const { error } = await client.from('partite').insert(rows);
+      if (error) {
+        console.warn('[Supabase partite] Errore inserimento righe:', error.message);
+      }
+    } catch (err) {
+      console.warn('[Supabase partite] Inserimento non riuscito:', err);
+    }
+  };
+
+  // Cancellazione diretta di una singola partita dalla tabella 'partite' di Supabase
+  const deletePartitaFromSupabase = async (matchName: string, rawLine?: string) => {
+    const client = getSupabaseClient();
+    if (!client || !matchName) return;
+    try {
+      const { error } = await client.from('partite').delete().eq('partita', matchName);
+      if (error && rawLine) {
+        try {
+          await client.from('partite').delete().eq('raw_line', rawLine);
+        } catch { /* ignore */ }
+      }
+    } catch (err) {
+      console.warn('[Supabase partite] Errore cancellazione partita:', err);
+    }
+  };
+
+  // Pull dell'ultima versione salvata da Supabase per il codice corrente
   const pullFromServer = async () => {
     if (!syncCode) return;
     setSyncStatus('loading');
     try {
-      applySession(await api.getSession(syncCode));
+      const client = getSupabaseClient();
+      if (!client) throw new Error('Supabase non configurato.');
+      const { data, error } = await client
+        .from('masanielli')
+        .select('*')
+        .eq('codice', syncCode.trim().toUpperCase())
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error(`Codice "${syncCode}" non trovato in Supabase`);
+
+      applySession(mapRowToSession(data));
+      await loadPartiteFromSupabase();
     } catch (err) {
       setSyncStatus('error');
       setSyncError(err instanceof Error ? err.message : 'Errore di sincronizzazione');
@@ -943,12 +1091,23 @@ export default function App() {
     if (!code) return;
     setSyncStatus('loading');
     try {
-      applySession(await api.getSession(code));
+      const client = getSupabaseClient();
+      if (!client) throw new Error('Supabase non configurato.');
+      const { data, error } = await client
+        .from('masanielli')
+        .select('*')
+        .eq('codice', code)
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error(`Codice "${code}" non trovato`);
+
+      applySession(mapRowToSession(data));
       setShowSyncModal(false);
       setCodeInput('');
     } catch (err) {
       setSyncStatus('error');
-      setSyncError(err instanceof Error && err.message !== 'Code not found' ? err.message : `Codice "${code}" non trovato`);
+      setSyncError(err instanceof Error ? err.message : `Codice "${code}" non trovato`);
     }
   };
 
@@ -961,7 +1120,7 @@ export default function App() {
     setShowSupabaseModal(true);
   };
 
-  // Ricarica i dati dell'applicazione dal server / database
+  // Ricarica i dati dell'applicazione da Supabase
   const reloadAppData = async () => {
     const urlCode = new URLSearchParams(window.location.search).get('code')?.trim().toUpperCase() || '';
     let storedCode = '';
@@ -970,24 +1129,39 @@ export default function App() {
 
     setSyncStatus('loading');
     try {
-      let session: MasanielloSession | null = null;
-      if (preferredCode) {
-        session = await api.getSession(preferredCode).catch(err => {
-          if (err instanceof Error && err.message === 'Code not found') return null;
-          throw err;
-        });
-      }
-      if (!session && !urlCode) {
-        session = await api.getLatestSession().catch(() => null);
-      }
-      if (session) {
-        applySession(session);
+      const client = getSupabaseClient();
+      if (!client) {
+        setSyncStatus('idle');
         return;
       }
-      setSyncStatus('idle');
+      let row: any = null;
+      if (preferredCode) {
+        const { data, error } = await client
+          .from('masanielli')
+          .select('*')
+          .eq('codice', preferredCode)
+          .maybeSingle();
+        if (!error && data) row = data;
+      }
+      if (!row && !urlCode) {
+        const { data, error } = await client
+          .from('masanielli')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) row = data;
+      }
+      if (row) {
+        applySession(mapRowToSession(row));
+      } else {
+        setSyncStatus('idle');
+      }
+
+      await loadPartiteFromSupabase();
     } catch (err) {
       setSyncStatus('error');
-      setSyncError(err instanceof Error ? err.message : 'Errore nel ricaricamento dei dati');
+      setSyncError(err instanceof Error ? err.message : 'Errore nel ricaricamento dei dati da Supabase');
     }
   };
 
@@ -1034,7 +1208,7 @@ export default function App() {
     document.title = 'Masaniello SamSte';
   }, []);
 
-  // Load on mount: server first, localStorage only as offline fallback
+  // Load on mount: recupero dati da Supabase con fallback a localStorage
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1044,28 +1218,44 @@ export default function App() {
       const preferredCode = urlCode || storedCode;
 
       try {
-        let session: MasanielloSession | null = null;
-        if (preferredCode) {
-          session = await api.getSession(preferredCode).catch(err => {
-            if (err instanceof Error && err.message === 'Code not found') return null;
-            throw err;
-          });
+        const client = getSupabaseClient();
+        if (client) {
+          let row: any = null;
+          if (preferredCode) {
+            const { data, error } = await client
+              .from('masanielli')
+              .select('*')
+              .eq('codice', preferredCode)
+              .maybeSingle();
+            if (!error && data) row = data;
+          }
+          if (!row && !urlCode) {
+            const { data, error } = await client
+              .from('masanielli')
+              .select('*')
+              .order('updated_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (!error && data) row = data;
+          }
+          if (cancelled) return;
+          if (row) {
+            applySession(mapRowToSession(row));
+            hydratedRef.current = true;
+            await loadPartiteFromSupabase();
+            return;
+          }
+          setSyncStatus('idle');
+        } else {
+          setSyncStatus('idle');
         }
-        if (!session && !urlCode) session = await api.getLatestSession();
-        if (cancelled) return;
-        if (session) {
-          applySession(session);
-          hydratedRef.current = true;
-          return;
-        }
-        setSyncStatus('idle');
       } catch (err) {
         if (cancelled) return;
         setSyncStatus('error');
-        setSyncError(err instanceof Error ? err.message : 'Server non raggiungibile');
+        setSyncError(err instanceof Error ? err.message : 'Supabase non raggiungibile');
       }
 
-      // Nothing on the server yet (or offline / pagina pulita): use local cache or defaults
+      // Offline o prima configurazione: usa cache locale o valori di default
       adoptCode(preferredCode || generateSyncCode());
       const initialTitle = getDefaultTitle();
       setTitle(initialTitle);
@@ -1087,7 +1277,7 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // Auto-save to the server (debounced) and keep a local offline copy
+  // Auto-save su Supabase (debounced) e copia offline locale
   useEffect(() => {
     if (!hydratedRef.current || events.length === 0) return;
     const state = currentState();
@@ -1106,17 +1296,27 @@ export default function App() {
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [config, events, roundStakes, matchesListText, syncCode, title]);
 
-  // When the tab becomes visible again (e.g. switching back on the phone),
-  // fetch the latest server copy if there are no unsaved local edits
+  // When tab becomes visible, sincronizza con l'ultima versione di Supabase
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible' || !syncCode || !hydratedRef.current) return;
       if (JSON.stringify(currentState()) !== lastSyncedJsonRef.current) return;
-      api.getSession(syncCode)
-        .then(session => {
-          if (JSON.stringify(session.state) !== lastSyncedJsonRef.current) applySession(session);
-        })
-        .catch(() => { /* keep local state */ });
+      const client = getSupabaseClient();
+      if (!client) return;
+      client
+        .from('masanielli')
+        .select('*')
+        .eq('codice', syncCode.trim().toUpperCase())
+        .maybeSingle()
+        .then(
+          ({ data }) => {
+            if (data) {
+              const s = mapRowToSession(data);
+              if (JSON.stringify(s.state) !== lastSyncedJsonRef.current) applySession(s);
+            }
+          },
+          () => { /* keep local state */ }
+        );
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -1441,6 +1641,8 @@ export default function App() {
     } catch {
       // quota
     }
+    syncPartiteToSupabase(newText);
+    saveNow({ ...currentState(), matchesListText: newText });
     setShowDeleteBeforeModal(false);
   };
 
@@ -1483,6 +1685,9 @@ export default function App() {
     try {
       localStorage.setItem(MATCHES_LIST_STORAGE_KEY, newText);
     } catch { /* ignore */ }
+
+    // Elimina la riga direttamente da Supabase tabella 'partite'
+    deletePartitaFromSupabase(targetItem.match, targetItem.rawLine);
 
     // Salva automaticamente nel database online per mantenere la sincronizzazione completa
     saveNow({ ...currentState(), matchesListText: newText });
@@ -3350,7 +3555,15 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={() => setMatchesListText('')}
+                  onClick={() => {
+                    setMatchesListText('');
+                    try { localStorage.setItem(MATCHES_LIST_STORAGE_KEY, ''); } catch { /* ignore */ }
+                    const client = getSupabaseClient();
+                    if (client) {
+                      client.from('partite').delete().gte('id', 0).then(() => {}, () => {});
+                    }
+                    saveNow({ ...currentState(), matchesListText: '' });
+                  }}
                   className="text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
                   title="Azzera tutto il campo elenco partite"
                 >

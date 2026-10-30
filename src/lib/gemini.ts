@@ -106,19 +106,22 @@ export async function getEffectiveGeminiApiKey(): Promise<string> {
     return cachedServerKey;
   }
 
-  // 6. Chiamata all'endpoint serverless (/api/gemini-config)
+  // 6. Chiamata facoltativa all'endpoint di configurazione se disponibile
   try {
-    const res = await fetch("/api/gemini-config");
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      if (isValidApiKey(data?.apiKey)) {
-        const cleanKey = data.apiKey.trim();
-        cachedServerKey = cleanKey;
-        return cleanKey;
+    const res = await fetch("/api/gemini-config").catch(() => null);
+    if (res && res.ok) {
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await res.json().catch(() => null);
+        if (isValidApiKey(data?.apiKey)) {
+          const cleanKey = data.apiKey.trim();
+          cachedServerKey = cleanKey;
+          return cleanKey;
+        }
       }
     }
   } catch (err) {
-    console.warn("Could not fetch gemini-config from server:", err);
+    // ignore
   }
 
   return "";
