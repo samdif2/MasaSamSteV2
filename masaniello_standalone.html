@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calcolatore Masaniello Professionale</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #131b2e;
+      --card-border: #1e293b;
+      --header-bg: #0f172a;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --cyan-stake: #38bdf8;
+      --win: #10b981;
+      --win-bg: rgba(16, 185, 129, 0.12);
+      --loss: #f43f5e;
+      --loss-bg: rgba(244, 63, 94, 0.12);
+      --active-bg: rgba(37, 99, 235, 0.12);
+      --active-border: rgba(56, 189, 248, 0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      padding: 24px 16px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 18px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--cyan-stake);
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .brand-sub {
+      font-size: 0.825rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: none;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background-color: var(--primary);
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-danger {
+      background-color: rgba(244, 63, 94, 0.12);
+      color: #fda4af;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+    .btn-danger:hover {
+      background-color: rgba(244, 63, 94, 0.22);
+      color: #ffffff;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .panel-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #ffffff;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 16px;
+      align-items: flex-end;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.775rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .input-control {
+      width: 100%;
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      color: #ffffff;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-variant-numeric: tabular-nums;
+      transition: border-color 0.15s ease;
+    }
+
+    .input-control:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .presets-container {
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .preset-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .preset-chip {
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .preset-chip:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .metric-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+
+    .metric-header {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .metric-sub {
+      font-size: 0.775rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .val-win { color: var(--win); }
+    .val-loss { color: var(--loss); }
+    .val-cyan { color: var(--cyan-stake); }
+    .val-white { color: #ffffff; }
+
+    /* Banner */
+    .status-banner {
+      padding: 16px 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .banner-in-progress {
+      background: rgba(37, 99, 235, 0.12);
+      border: 1px solid rgba(37, 99, 235, 0.35);
+      color: #bfdbfe;
+    }
+
+    .banner-won {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #a7f3d0;
+    }
+
+    .banner-lost {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: #fecdd3;
+    }
+
+    /* Table */
+    .table-container {
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      min-width: 840px;
+    }
+
+    th {
+      background-color: #0d1322;
+      padding: 12px 14px;
+      font-size: 0.725rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.875rem;
+      vertical-align: middle;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr.row-next {
+      background-color: var(--active-bg);
+      outline: 1px solid var(--active-border);
+    }
+
+    tr.row-won {
+      background-color: var(--win-bg);
+    }
+
+    tr.row-lost {
+      background-color: var(--loss-bg);
+    }
+
+    .table-input {
+      width: 100%;
+      background: #090d16;
+      border: 1px solid #1e293b;
+      color: #ffffff;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      transition: border-color 0.15s ease;
+    }
+
+    .table-input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .table-input:disabled {
+      background: #0d1322;
+      border-color: #1e293b;
+      color: #64748b;
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+
+    .stake-display {
+      font-size: 1rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--cyan-stake);
+    }
+
+    .stake-tag {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #2563eb;
+      color: #fff;
+      margin-left: 6px;
+    }
+
+    .stake-frozen-tag {
+      font-size: 0.65rem;
+      color: #64748b;
+      font-family: monospace;
+      margin-left: 4px;
+    }
+
+    .esito-btn-group {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .esito-btn {
+      padding: 5px 9px;
+      font-size: 0.75rem;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.15s ease;
+      background: #1e293b;
+      color: #94a3b8;
+    }
+
+    .esito-btn:hover {
+      background: #334155;
+      color: #fff;
+    }
+
+    .esito-btn.active-won {
+      background: var(--win);
+      color: #ffffff;
+    }
+
+    .esito-btn.active-lost {
+      background: var(--loss);
+      color: #ffffff;
+    }
+
+    .esito-btn.active-pending {
+      background: #475569;
+      color: #ffffff;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 16px;
+    }
+
+    .modal-box {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      max-width: 420px;
+      width: 100%;
+      padding: 24px;
+    }
+
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .modal-text {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    @media (max-width: 768px) {
+      body { padding: 12px 8px; }
+      .metrics-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <header>
+    <div>
+      <div class="brand-title">
+        Calcolatore Masaniello
+        <span class="brand-badge">Money Management</span>
+      </div>
+      <div class="brand-sub">Algoritmo matematico binomiale di Tartaglia per scommesse sportive</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-danger" onclick="openResetModal()">
+        &#8635; Nuovo Masaniello
+      </button>
+    </div>
+  </header>
+
+  <!-- Parametri Masaniello -->
+  <div class="card">
+    <div class="panel-title">
+      <span>Parametri della Progressione</span>
+    </div>
+    <form id="configForm" onsubmit="event.preventDefault(); handleApplyConfig();">
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="inpBankroll">Cassa Iniziale (€)</label>
+          <input type="number" id="inpBankroll" class="input-control" step="1" min="1" value="100" required>
+        </div>
+        <div class="form-group">
+          <label for="inpTotal">Eventi Totali (N)</label>
+          <input type="number" id="inpTotal" class="input-control" min="2" max="50" value="20" required>
+        </div>
+        <div class="form-group">
+          <label for="inpExpected">Eventi Attesi (K)</label>
+          <input type="number" id="inpExpected" class="input-control" min="1" max="49" value="11" required>
+        </div>
+        <div class="form-group">
+          <label for="inpOdds">Quota Media</label>
+          <input type="number" id="inpOdds" class="input-control" step="0.01" min="1.05" max="20" value="1.60" required>
+        </div>
+        <div class="form-group">
+          <button type="submit" class="btn btn-primary" style="width: 100%; height: 42px;">
+            Genera / Inizia Masaniello
+          </button>
+        </div>
+      </div>
+    </form>
+    <div class="presets-container">
+      <span class="preset-label">Preset veloci:</span>
+      <button class="preset-chip" onclick="applyPreset(20, 11, 1.60)" style="background:#2563eb; color:#fff;">11 su 20 @ 1.60 (Default)</button>
+      <button class="preset-chip" onclick="applyPreset(10, 6, 2.00)">6 su 10 @ 2.00</button>
+      <button class="preset-chip" onclick="applyPreset(6, 4, 1.85)">4 su 6 @ 1.85</button>
+      <button class="preset-chip" onclick="applyPreset(8, 5, 1.75)">5 su 8 @ 1.75</button>
+      <button class="preset-chip" onclick="applyPreset(12, 7, 2.10)">7 su 12 @ 2.10</button>
+    </div>
+  </div>
+
+  <!-- Metric Summary Cards -->
+  <div class="metrics-grid" id="metricsGrid"></div>
+
+  <!-- Lifecycle Status Banner -->
+  <div id="statusBanner"></div>
+
+  <!-- Table Card -->
+  <div class="card" style="padding: 0; overflow: hidden;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid var(--card-border); font-weight: 600; font-size: 0.95rem; color: #fff;">
+      Tabella Partite e Gestione Eventi
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 45px; text-align: center;">#</th>
+            <th>Descrizione Partita / Evento</th>
+            <th>Segno / Mercato</th>
+            <th style="width: 105px;">Quota</th>
+            <th style="width: 160px;">Puntata Calcolata (€)</th>
+            <th style="width: 220px; text-align: center;">Esito</th>
+            <th style="width: 130px; text-align: right;">Cassa Residua</th>
+          </tr>
+        </thead>
+        <tbody id="eventsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Modal -->
+<div class="modal-overlay" id="resetModal">
+  <div class="modal-box">
+    <div class="modal-title">Conferma Reset Masaniello</div>
+    <div class="modal-text">
+      Sei sicuro di voler azzerare tutti i dati memorizzati nel browser e iniziare un nuovo Masaniello con i parametri predefiniti (Cassa: 100€, 20 eventi, 11 attesi, quota 1.60)?
+    </div>
+    <div class="modal-actions">
+      <button class="btn" style="background:#334155; color:#fff;" onclick="closeResetModal()">Annulla</button>
+      <button class="btn btn-danger" onclick="executeFullReset()">Sì, Resetta Tutto</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEY = 'masaniello_standalone_storage_v3';
+
+  let appState = {
+    config: {
+      initialBankroll: 100,
+      totalEvents: 20,
+      expectedWins: 11,
+      averageOdds: 1.60
+    },
+    events: []
+  };
+
+  // Calcolo esatto della probabilità di vincita (Poisson-Binomiale)
+  function calculateWinProbability(oddsList, targetWins) {
+    if (targetWins <= 0) return 1.0;
+    if (targetWins > oddsList.length) return 0.0;
+    let dp = [1.0];
+    for (let i = 0; i < oddsList.length; i++) {
+      const q = Math.max(1.0001, oddsList[i]);
+      const p = 1.0 / q;
+      const nextDp = new Array(dp.length + 1).fill(0);
+      nextDp[0] = dp[0] * (1.0 - p);
+      for (let w = 1; w <= dp.length; w++) {
+        const prevWin = dp[w - 1] || 0;
+        const prevLoss = dp[w] || 0;
+        nextDp[w] = prevLoss * (1.0 - p) + prevWin * p;
+      }
+      dp = nextDp;
+    }
+    let totalProb = 0;
+    for (let w = targetWins; w < dp.length; w++) {
+      totalProb += dp[w];
+    }
+    return totalProb;
+  }
+
+  // Calcolo teorico della vincita potenziale per la progressione Masaniello
+  function calculatePotentialPayout(initialBankroll, totalEvents, expectedWins, averageOdds) {
+    if (initialBankroll <= 0 || expectedWins <= 0 || expectedWins > totalEvents) return 0;
+    const oddsList = new Array(totalEvents).fill(Math.max(1.0001, averageOdds));
+    const prob = calculateWinProbability(oddsList, expectedWins);
+    if (prob <= 0) return 0;
+    return initialBankroll / prob;
+  }
+
+  // Formula esatta dello Stake Masaniello:
+  // Stake = Ck * (P_win - P_loss) / [ Qk * P_cur ]
+  function calculateStake(currentBankroll, eventOdds, remainingWins, remainingEventsCount, futureOdds) {
+    if (currentBankroll <= 0 || remainingWins <= 0) return 0;
+    if (remainingWins > remainingEventsCount) return 0;
+    if (remainingWins === remainingEventsCount) return Math.round(currentBankroll * 100) / 100;
+
+    const q = Math.max(1.0001, eventOdds);
+    const future = (futureOdds && futureOdds.length === remainingEventsCount - 1)
+      ? futureOdds
+      : new Array(remainingEventsCount - 1).fill(q);
+
+    const pWin = calculateWinProbability(future, remainingWins - 1);
+    const pLoss = calculateWinProbability(future, remainingWins);
+    const pCur = (1.0 / q) * pWin + (1.0 - 1.0 / q) * pLoss;
+    if (pCur <= 0) return 0;
+
+    const stake = currentBankroll * (pWin - pLoss) / (q * pCur);
+    return Math.round(stake * 100) / 100;
+  }
+
+  function initEvents(total, odds) {
+    appState.events = [];
+    for (let i = 1; i <= total; i++) {
+      appState.events.push({
+        id: i,
+        match: '',
+        market: '',
+        odds: odds,
+        status: 'pending' // 'pending' | 'won' | 'lost'
+      });
+    }
+    saveData();
+  }
+
+  function loadData() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.config && Array.isArray(parsed.events) && parsed.events.length > 0) {
+          appState = parsed;
+          document.getElementById('inpBankroll').value = appState.config.initialBankroll;
+          document.getElementById('inpTotal').value = appState.config.totalEvents;
+          document.getElementById('inpExpected').value = appState.config.expectedWins;
+          document.getElementById('inpOdds').value = appState.config.averageOdds;
+          renderApp();
+          return;
+        }
+      }
+    } catch (e) {}
+    initEvents(appState.config.totalEvents, appState.config.averageOdds);
+    renderApp();
+  }
+
+  function saveData() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+    } catch (e) {}
+  }
+
+  function handleApplyConfig() {
+    const bankroll = parseFloat(document.getElementById('inpBankroll').value) || 100;
+    const total = parseInt(document.getElementById('inpTotal').value) || 20;
+    const expected = parseInt(document.getElementById('inpExpected').value) || 11;
+    const odds = parseFloat(document.getElementById('inpOdds').value) || 1.60;
+
+    if (expected > total) {
+      alert("Il numero di eventi attesi non può superare gli eventi totali.");
+      return;
+    }
+
+    appState.config = {
+      initialBankroll: bankroll,
+      totalEvents: total,
+      expectedWins: expected,
+      averageOdds: odds
+    };
+
+    initEvents(total, odds);
+    renderApp();
+  }
+
+  function applyPreset(total, expected, odds) {
+    document.getElementById('inpTotal').value = total;
+    document.getElementById('inpExpected').value = expected;
+    document.getElementById('inpOdds').value = odds;
+    handleApplyConfig();
+  }
+
+  // Descrizione e Segno sempre modificabili; Quota bloccata se l'evento è già concluso
+  function updateEventField(idx, field, val) {
+    if (field === 'odds' && appState.events[idx].status !== 'pending') {
+      return; // Disallow modifying odds on closed matches
+    }
+    appState.events[idx][field] = val;
+    saveData();
+    renderApp();
+  }
+
+  // Imposta esito con congelamento definitivo della puntata
+  function setEventStatus(idx, status) {
+    if (status === 'pending') {
+      delete appState.events[idx].placedStake;
+      appState.events[idx].status = 'pending';
+    } else {
+      const frozenStake = (window._lastEvaluated && window._lastEvaluated[idx]) ? window._lastEvaluated[idx].calculatedStake : 0;
+      appState.events[idx].placedStake = appState.events[idx].placedStake !== undefined ? appState.events[idx].placedStake : frozenStake;
+      appState.events[idx].status = status;
+    }
+    saveData();
+    renderApp();
+  }
+
+  function openResetModal() {
+    document.getElementById('resetModal').style.display = 'flex';
+  }
+
+  function closeResetModal() {
+    document.getElementById('resetModal').style.display = 'none';
+  }
+
+  function executeFullReset() {
+    localStorage.removeItem(STORAGE_KEY);
+    appState.config = {
+      initialBankroll: 100,
+      totalEvents: 20,
+      expectedWins: 11,
+      averageOdds: 1.60
+    };
+    document.getElementById('inpBankroll').value = 100;
+    document.getElementById('inpTotal').value = 20;
+    document.getElementById('inpExpected').value = 11;
+    document.getElementById('inpOdds').value = 1.60;
+    initEvents(20, 1.60);
+    closeResetModal();
+    renderApp();
+  }
+
+  function renderApp() {
+    let currentBankroll = appState.config.initialBankroll;
+    let wins = 0;
+    let losses = 0;
+    const maxAllowedLosses = appState.config.totalEvents - appState.config.expectedWins;
+    let lifecycleStatus = 'in_progress';
+    let nextGameFound = false;
+
+    // Evaluate each event sequentially
+    const evaluatedEvents = [];
+
+    for (let i = 0; i < appState.events.length; i++) {
+      const ev = appState.events[i];
+      const remainingEventsCount = appState.config.totalEvents - i;
+      const remainingWinsNeeded = appState.config.expectedWins - wins;
+
+      // Collect future remaining odds
+      const futureOddsList = [];
+      for (let j = i + 1; j < appState.events.length; j++) {
+        futureOddsList.push(appState.events[j].odds || appState.config.averageOdds);
+      }
+
+      let isNext = false;
+      let calculatedStake = 0;
+
+      // Se la partita è già conclusa (vinta o persa), la puntata è congelata e non cambia mai!
+      if (ev.status === 'won' || ev.status === 'lost') {
+        calculatedStake = (ev.placedStake !== undefined) ? ev.placedStake : calculateStake(
+          currentBankroll,
+          ev.odds,
+          remainingWinsNeeded,
+          remainingEventsCount,
+          futureOddsList
+        );
+      } else if (lifecycleStatus === 'in_progress') {
+        if (ev.status === 'pending' && !nextGameFound) {
+          isNext = true;
+          nextGameFound = true;
+        }
+        calculatedStake = calculateStake(
+          currentBankroll,
+          ev.odds,
+          remainingWinsNeeded,
+          remainingEventsCount,
+          futureOddsList
+        );
+      }
+
+      let bankrollAfter = currentBankroll;
+
+      if (ev.status === 'won') {
+        wins++;
+        currentBankroll += calculatedStake * (ev.odds - 1.0);
+        bankrollAfter = currentBankroll;
+      } else if (ev.status === 'lost') {
+        losses++;
+        currentBankroll -= calculatedStake;
+        bankrollAfter = currentBankroll;
+      }
+
+      // Check progression termination
+      if (wins >= appState.config.expectedWins) {
+        lifecycleStatus = 'won';
+      } else if (losses > maxAllowedLosses) {
+        lifecycleStatus = 'lost';
+      }
+
+      evaluatedEvents.push({
+        ...ev,
+        calculatedStake,
+        bankrollAfter,
+        isNext
+      });
+    }
+
+    window._lastEvaluated = evaluatedEvents;
+
+    // Initial theoretical projection
+    const potentialPayout = calculatePotentialPayout(
+      appState.config.initialBankroll,
+      appState.config.totalEvents,
+      appState.config.expectedWins,
+      appState.config.averageOdds
+    );
+    const potentialNetProfit = potentialPayout - appState.config.initialBankroll;
+    const potentialROI = appState.config.initialBankroll > 0 ? (potentialNetProfit / appState.config.initialBankroll) * 100 : 0;
+
+    const netProfitSoFar = currentBankroll - appState.config.initialBankroll;
+    const remainingLosses = Math.max(0, maxAllowedLosses - losses);
+
+    // 1. Render Metrics Grid
+    const netClass = netProfitSoFar >= 0 ? 'val-win' : 'val-loss';
+    document.getElementById('metricsGrid').innerHTML = `
+      <div class="metric-card">
+        <div class="metric-header">Cassa Attuale</div>
+        <div class="metric-value ${netClass}">€ ${currentBankroll.toFixed(2)}</div>
+        <div class="metric-sub">
+          Iniziale: € ${appState.config.initialBankroll.toFixed(2)} (${netProfitSoFar >= 0 ? '+' : ''}${netProfitSoFar.toFixed(2)} €)
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-header">Vincita Potenziale Totale</div>
+        <div class="metric-value val-white">€ ${potentialPayout.toFixed(2)}</div>
+        <div class="metric-sub">
+          Resa target: <strong class="val-cyan">${(potentialPayout / appState.config.initialBankroll).toFixed(2)}x</strong>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-header">Profitto Netto Atteso</div>
+        <div class="metric-value val-win">+€ ${potentialNetProfit.toFixed(2)}</div>
+        <div class="metric-sub">
+          Rendimento (ROI): <strong class="val-win">+${potentialROI.toFixed(2)}%</strong>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-header">Progressione & Errori</div>
+        <div class="metric-value val-white">${wins} / ${appState.config.expectedWins}</div>
+        <div class="metric-sub">
+          Errori: <strong>${losses}</strong> su <strong>${maxAllowedLosses}</strong> max consentiti
+        </div>
+      </div>
+    `;
+
+    // 2. Render Status Banner
+    const bannerEl = document.getElementById('statusBanner');
+    if (lifecycleStatus === 'won') {
+      bannerEl.className = 'status-banner banner-won';
+      bannerEl.innerHTML = `
+        <div>
+          <strong>&check; Masaniello Concluso con Successo!</strong>
+          <div>Hai raggiunto i ${appState.config.expectedWins} eventi vincenti prefissati. Obiettivo raggiunto!</div>
+        </div>
+        <div style="font-size: 1.1rem; font-weight:700;">
+          Cassa Finale Realizzata: € ${currentBankroll.toFixed(2)}
+        </div>
+      `;
+    } else if (lifecycleStatus === 'lost') {
+      bannerEl.className = 'status-banner banner-lost';
+      bannerEl.innerHTML = `
+        <div>
+          <strong>&cross; Masaniello Chiuso / Perso</strong>
+          <div>Hai superato il numero massimo di errori consentiti (${maxAllowedLosses}). Progressione interrotta per salvaguardare il capitale.</div>
+        </div>
+        <div style="font-size: 1.1rem; font-weight:700;">
+          Cassa Residua: € ${currentBankroll.toFixed(2)}
+        </div>
+      `;
+    } else {
+      const nextGame = evaluatedEvents.find(e => e.isNext);
+      bannerEl.className = 'status-banner banner-in-progress';
+      bannerEl.innerHTML = `
+        <div>
+          <strong>Progressione in Corso</strong>
+          <div>Mancano ${appState.config.expectedWins - wins} vittorie. Errori rimanenti tollerati: <strong>${remainingLosses}</strong>.</div>
+        </div>
+        ${nextGame ? `
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:0.8rem; text-transform:uppercase; font-weight:600;">Prossima Puntata (#${nextGame.id}):</span>
+            <span class="stake-display" style="font-size:1.3rem;">€ ${nextGame.calculatedStake.toFixed(2)}</span>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    // 3. Render Table Rows (Descrizione e Segno sempre modificabili; Quota bloccata su partite concluse)
+    const tbody = document.getElementById('eventsTbody');
+    tbody.innerHTML = evaluatedEvents.map((ev, idx) => {
+      let rowClass = '';
+      if (ev.isNext) rowClass = 'row-next';
+      else if (ev.status === 'won') rowClass = 'row-won';
+      else if (ev.status === 'lost') rowClass = 'row-lost';
+
+      const isClosed = ev.status !== 'pending';
+      const prevEv = idx > 0 ? evaluatedEvents[idx - 1] : null;
+      const isPrevFinished = idx === 0 || (prevEv ? (prevEv.status === 'won' || prevEv.status === 'lost') : false);
+      // Dalla seconda partita in poi, se quella precedente non è finita, nascondi la puntata calcolata
+      const showStake = isClosed || (idx === 0 && lifecycleStatus === 'in_progress') || (isPrevFinished && ev.isNext && lifecycleStatus === 'in_progress');
+
+      return `
+        <tr class="${rowClass}">
+          <td style="text-align: center; font-weight: 700; color: var(--text-muted); font-size: 0.8rem;">
+            ${ev.isNext ? `<span style="background:#2563eb; color:#fff; padding:2px 7px; border-radius:10px;">${ev.id}</span>` : ev.id}
+          </td>
+          <td>
+            <input type="text" class="table-input" value="${escapeHtml(ev.match)}" placeholder="Es: Partita #${ev.id}"
+              onchange="updateEventField(${idx}, 'match', this.value)">
+          </td>
+          <td>
+            <select class="table-input" style="width: 75px;" onchange="updateEventField(${idx}, 'market', this.value)">
+              <option value=""></option>
+              <option value="O1.5" ${ev.market === 'O1.5' ? 'selected' : ''}>O1.5</option>
+              <option value="O2.5" ${ev.market === 'O2.5' ? 'selected' : ''}>O2.5</option>
+              <option value="U2.5" ${ev.market === 'U2.5' ? 'selected' : ''}>U2.5</option>
+              <option value="U3.5" ${ev.market === 'U3.5' ? 'selected' : ''}>U3.5</option>
+            </select>
+          </td>
+          <td>
+            <input type="number" step="0.01" min="1.01" class="table-input" value="${ev.odds}"
+              ${isClosed ? 'disabled title="Quota bloccata per eventi già conclusi (vinta/persa)"' : ''}
+              onchange="updateEventField(${idx}, 'odds', Math.max(1.01, parseFloat(this.value) || 1.60))">
+          </td>
+          <td>
+            ${showStake ? `
+              <span class="stake-display">€ ${ev.calculatedStake.toFixed(2)}</span>
+              ${ev.isNext ? '<span class="stake-tag">Gioca Ora</span>' : ''}
+              ${isClosed ? '<span class="stake-frozen-tag">[fissa]</span>' : ''}
+            ` : '<span style="color:#64748b; font-family:monospace; font-size:0.95rem;" title="In attesa dell\'esito della partita precedente">—</span>'}
+          </td>
+          <td style="text-align: center;">
+            <div class="esito-btn-group" style="justify-content: center;">
+              <button type="button" class="esito-btn ${ev.status === 'pending' ? 'active-pending' : ''}"
+                onclick="setEventStatus(${idx}, 'pending')">Da Giocare</button>
+              <button type="button" class="esito-btn ${ev.status === 'won' ? 'active-won' : ''}"
+                onclick="setEventStatus(${idx}, 'won')">&check; Vinta</button>
+              <button type="button" class="esito-btn ${ev.status === 'lost' ? 'active-lost' : ''}"
+                onclick="setEventStatus(${idx}, 'lost')">&cross; Persa</button>
+            </div>
+          </td>
+          <td style="text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">
+            ${(ev.status === 'pending' && !ev.isNext) ? '<span style="color:#64748b;">-</span>' : `
+              <span class="${ev.bankrollAfter >= appState.config.initialBankroll ? 'val-win' : 'val-loss'}">
+                € ${ev.bankrollAfter.toFixed(2)}
+              </span>
+            `}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  window.onload = loadData;
+</script>
+
+</body>
+</html>

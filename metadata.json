@@ -1,0 +1,8 @@
+{
+  "name": "Masa SamSte v2 Supabase",
+  "description": "Applicazione completa per la gestione del capitale con metodo Masaniello nelle scommesse sportive, calcolo automatico puntate e tracciamento cassa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

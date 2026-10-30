@@ -1,0 +1,1 @@
+ALTER TABLE "masaniello_sessions" ADD COLUMN IF NOT EXISTS "title" varchar(255);
