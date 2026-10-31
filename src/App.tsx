@@ -355,15 +355,22 @@ function getMatchColorInfo(
   };
 }
 
-// Accorcia e formatta la data a GG/MM/AA
+// Accorcia e formatta la data a GG/MM/AA (es. 20/10/2026 -> 20/10/26)
 function formatDateShort(rawDate: string | undefined): string {
   if (!rawDate || !rawDate.trim()) return '';
   const d = rawDate.trim();
-  const match = d.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  const isoMatch = d.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+  if (isoMatch) {
+    const day = isoMatch[3].padStart(2, '0');
+    const month = isoMatch[2].padStart(2, '0');
+    const year = isoMatch[1].slice(-2);
+    return `${day}/${month}/${year}`;
+  }
+  const match = d.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
   if (match) {
     const day = match[1].padStart(2, '0');
     const month = match[2].padStart(2, '0');
-    const year = match[3].length === 4 ? match[3].slice(-2) : match[3];
+    const year = match[3].length === 4 ? match[3].slice(-2) : match[3].padStart(2, '0');
     return `${day}/${month}/${year}`;
   }
   return d;
@@ -664,6 +671,50 @@ export default function App() {
       }, 1500);
     } catch (err) {
       console.error('Failed to copy match TSV:', err);
+    }
+  };
+
+  // Stato feedback copia per la singola partita nella progressione attiva
+  const [copiedEventId, setCopiedEventId] = useState<number | null>(null);
+
+  // Funzione per copiare i dati della singola partita del Masaniello attivo negli appunti
+  const copyEventMatch = async (ev: MasanielloEvent & { rawLine?: string }) => {
+    const prob = ev.probabilityRaw || (ev.probability !== null && ev.probability !== undefined ? `${ev.probability.toFixed(1)}%` : '');
+    const oddsStr = ev.odds ? ev.odds.toFixed(2) : '';
+    const timeStr = ev.time && ev.time !== '--:--' ? ev.time : '';
+    const valueEdgeStr = calculateEventValueEdge(ev.probability, ev.odds);
+    const dateStr = formatDateShort(ev.date);
+
+    const tsvLine = ev.rawLine || [
+      dateStr || '',
+      timeStr,
+      ev.market || '',
+      prob,
+      ev.match || '',
+      ev.competition || '',
+      oddsStr,
+      valueEdgeStr || '',
+    ].join('\t');
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(tsvLine);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = tsvLine;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedEventId(ev.id);
+      setTimeout(() => {
+        setCopiedEventId((prev) => (prev === ev.id ? null : prev));
+      }, 1500);
+    } catch (err) {
+      console.error('Failed to copy event data:', err);
     }
   };
 
@@ -1205,7 +1256,7 @@ export default function App() {
 
   // Set browser document title
   useEffect(() => {
-    document.title = 'Masaniello SamSte';
+    document.title = 'Masa SamSte v2';
   }, []);
 
   // Load on mount: recupero dati da Supabase con fallback a localStorage
@@ -2426,7 +2477,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                {currentPage === 'masaniello' ? 'Masaniello Pro' : 'Elenco Partite'}
+                {currentPage === 'masaniello' ? 'Masa SamSte v2' : 'Elenco Partite'}
                 <span className="text-[11px] font-medium border rounded px-1.5 py-0.5 text-slate-400 border-slate-700">
                   {currentPage === 'masaniello' ? 'Money Management' : 'Pronostici'}
                 </span>
@@ -2542,36 +2593,6 @@ export default function App() {
               {syncStatus === 'saved' && lastSyncedAt && `Salvato ${new Date(lastSyncedAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`}
               {syncStatus === 'error' && (syncError || 'Errore di sincronizzazione')}
             </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => saveNow()}
-              disabled={!syncCode || syncStatus === 'saving' || syncStatus === 'loading'}
-              className="bg-emerald-700/80 hover:bg-emerald-600 disabled:opacity-50 text-white px-3 py-1 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Salva</span>
-            </button>
-            <button
-              type="button"
-              onClick={pullFromServer}
-              disabled={!syncCode || syncStatus === 'saving' || syncStatus === 'loading'}
-              title="Ricarica l'ultima versione salvata per questo codice"
-              className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 px-3 py-1 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Sync</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setCodeInput(''); setShowSyncModal(true); }}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer"
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              <span>Carica Codice</span>
-            </button>
           </div>
         </div>
       </div>
@@ -2998,14 +3019,24 @@ export default function App() {
                             title={isClosed ? 'Partita conclusa (modifiche disabilitate)' : undefined}
                           />
                           {ev.match && ev.match.trim().length > 0 && ev.status === 'pending' && (
-                            <button
-                              type="button"
-                              onClick={() => clearEventMatch(index)}
-                              className="bg-slate-800 hover:bg-rose-950/80 hover:text-rose-400 text-slate-400 border border-slate-700 hover:border-rose-700/60 rounded w-6 h-6 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
-                              title="Cancella partita dal Masaniello (torna disponibile nell'elenco)"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => copyEventMatch(ev)}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded w-6 h-6 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                                title="Copia dati partita negli appunti"
+                              >
+                                {copiedEventId === ev.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => clearEventMatch(index)}
+                                className="bg-slate-800 hover:bg-rose-950/80 hover:text-rose-400 text-slate-400 border border-slate-700 hover:border-rose-700/60 rounded w-6 h-6 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                                title="Cancella partita dal Masaniello (torna disponibile nell'elenco)"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -3218,8 +3249,8 @@ export default function App() {
                   }`}
                 >
                   {/* Prima riga Mobile: [Data (GG/MM/AA)] [Ora (OO:MM)] [Probabilità] [Value Edge] [Cassa attuale] */}
-                  <div className="flex items-center justify-between gap-1.5 w-full">
-                    <div className="flex items-center gap-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1 w-full overflow-hidden">
+                    <div className="flex items-center gap-1 min-w-0 flex-1">
                       {/* Data */}
                       <input
                         type="text"
@@ -3227,7 +3258,7 @@ export default function App() {
                         value={ev.date || ''}
                         onChange={(e) => updateEvent(index, { date: e.target.value })}
                         placeholder="GG/MM/AA"
-                        className={`w-16 border rounded px-1 py-1 text-[11px] text-center font-mono placeholder-slate-600 transition-colors ${
+                        className={`w-14 sm:w-16 border rounded px-1 py-1 text-[11px] text-center font-mono placeholder-slate-600 transition-colors ${
                           isClosed
                             ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed select-none'
                             : 'bg-slate-950/70 border-slate-800 text-white focus:outline-none focus:border-blue-500'
@@ -3241,7 +3272,7 @@ export default function App() {
                         value={ev.time || ''}
                         onChange={(e) => updateEvent(index, { time: e.target.value })}
                         placeholder="OO:MM"
-                        className={`w-12 border rounded px-1 py-1 text-[11px] text-center font-mono placeholder-slate-600 transition-colors ${
+                        className={`w-11 sm:w-12 border rounded px-1 py-1 text-[11px] text-center font-mono placeholder-slate-600 transition-colors ${
                           isClosed
                             ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed select-none'
                             : 'bg-slate-950/70 border-slate-800 text-white focus:outline-none focus:border-blue-500'
@@ -3258,7 +3289,7 @@ export default function App() {
                             ? `${ev.probability.toFixed(1)}%`
                             : ev.probabilityRaw || '—'
                         }
-                        className="w-13 bg-slate-900/60 border border-slate-800/80 rounded px-1 py-1 text-[11px] text-center font-mono text-slate-300 cursor-default select-none focus:outline-none"
+                        className="w-12 sm:w-13 bg-slate-900/60 border border-slate-800/80 rounded px-1 py-1 text-[11px] text-center font-mono text-slate-300 cursor-default select-none focus:outline-none"
                         title="Probabilità (non modificabile a mano)"
                       />
                       {/* Value Edge CALCOLATO NON MODIFICABILE A MANO */}
@@ -3267,7 +3298,7 @@ export default function App() {
                         readOnly
                         tabIndex={-1}
                         value={valueEdgeStr}
-                        className={`w-14 bg-slate-900/60 border border-slate-800/80 rounded px-1 py-1 text-[11px] text-center font-mono font-semibold cursor-default select-none focus:outline-none ${
+                        className={`w-13 sm:w-14 bg-slate-900/60 border border-slate-800/80 rounded px-1 py-1 text-[11px] text-center font-mono font-semibold cursor-default select-none focus:outline-none ${
                           ev.probability && (ev.probability * ev.odds) - 100 > 0
                             ? 'text-emerald-400'
                             : ev.probability && (ev.probability * ev.odds) - 100 < 0
@@ -3328,14 +3359,24 @@ export default function App() {
                       title={isClosed ? 'Partita conclusa (modifiche disabilitate)' : undefined}
                     />
                     {ev.match && ev.match.trim().length > 0 && ev.status === 'pending' && (
-                      <button
-                        type="button"
-                        onClick={() => clearEventMatch(index)}
-                        className="bg-slate-800 hover:bg-rose-950/80 hover:text-rose-400 text-slate-400 border border-slate-700 hover:border-rose-700/60 rounded w-6 h-6 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
-                        title="Cancella partita (torna disponibile nell'elenco)"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => copyEventMatch(ev)}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded w-6 h-6 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                          title="Copia dati partita negli appunti"
+                        >
+                          {copiedEventId === ev.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => clearEventMatch(index)}
+                          className="bg-slate-800 hover:bg-rose-950/80 hover:text-rose-400 text-slate-400 border border-slate-700 hover:border-rose-700/60 rounded w-6 h-6 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                          title="Cancella partita (torna disponibile nell'elenco)"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </>
                     )}
                   </div>
 
@@ -3598,116 +3639,112 @@ export default function App() {
 
             {matchesViewTab === 'table' && parsedMatches.length > 0 ? (
               <div className="space-y-3">
-                <div className="overflow-x-auto rounded-lg border border-slate-800">
-                  <table className="w-full text-left text-xs sm:text-sm border-collapse min-w-[750px]">
-                    <thead>
-                      <tr className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-400 sticky top-0">
-                        <th className="py-3 px-3 w-10 text-center">#</th>
-                        <th className="py-3 px-3 w-24">Data</th>
-                        <th className="py-3 px-3 w-20">Ora</th>
-                        <th className="py-3 px-3 w-24">Probabilità</th>
-                        <th className="py-3 px-3 w-24">Value Edge</th>
-                        <th className="py-3 px-3">Partita</th>
-                        <th className="py-3 px-3 w-20 text-center">Segno</th>
-                        <th className="py-3 px-3 w-24 text-right">Quota Book</th>
-                        <th className="py-3 px-3 w-40">Competizione</th>
-                        <th className="py-3 px-3 w-28 text-center">Copia</th>
-                        <th className="py-3 px-3 w-16 text-center">Elimina</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-sans">
-                      {parsedMatches.map((m) => {
-                        const colorInfo = getMatchColorInfo(m, events);
-                        return (
-                          <tr
-                            key={m.id}
-                            className={`hover:bg-slate-800/40 transition-colors ${
-                              colorInfo.isInMasaniello ? 'bg-red-950/20' : ''
-                            }`}
-                          >
-                            <td className={`py-2.5 px-3 text-center font-mono font-medium text-xs ${colorInfo.textColorClass}`}>
-                              {m.id}
-                            </td>
-                            <td className={`py-2.5 px-3 font-mono whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
-                              {m.date || '--'}
-                            </td>
-                            <td className={`py-2.5 px-3 font-mono whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
-                              {m.time || '--:--'}
-                            </td>
-                            <td className={`py-2.5 px-3 font-mono font-semibold whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
+                <div className="divide-y divide-slate-800/80 rounded-lg border border-slate-800 bg-slate-950/40">
+                  {parsedMatches.map((m) => {
+                    const colorInfo = getMatchColorInfo(m, events);
+                    return (
+                      <div
+                        key={m.id}
+                        className={`p-2.5 sm:p-3 transition-colors ${
+                          colorInfo.isInMasaniello ? 'bg-red-950/20' : 'hover:bg-slate-900/60'
+                        }`}
+                      >
+                        {/* Riga 1: Data | Ora | Probabilità | Value Edge | Segno (Segno allineato verticalmente sul lato destro) */}
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 font-mono text-[11px] sm:text-xs">
+                            <span className={`font-semibold ${colorInfo.textColorClass}`}>
+                              {formatDateShort(m.date) || '--'}
+                            </span>
+                            <span className="text-slate-600 font-normal">|</span>
+                            <span className={`font-medium ${colorInfo.textColorClass}`}>
+                              {m.time && m.time !== '--:--' ? formatTimeShort(m.time) : '--:--'}
+                            </span>
+                            <span className="text-slate-600 font-normal">|</span>
+                            <span className={`font-semibold ${colorInfo.textColorClass}`}>
                               {m.probabilityRaw || (m.probability !== null ? `${m.probability.toFixed(1)}%` : '--')}
-                            </td>
-                            <td className={`py-2.5 px-3 font-mono whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
+                            </span>
+                            <span className="text-slate-600 font-normal">|</span>
+                            <span className={`font-medium ${
+                              m.valueEdge && m.valueEdge.startsWith('+')
+                                ? 'text-emerald-400'
+                                : m.valueEdge && m.valueEdge.startsWith('-')
+                                ? 'text-rose-400'
+                                : colorInfo.textColorClass
+                            }`}>
                               {m.valueEdge || '--'}
-                            </td>
-                            <td className={`py-2.5 px-3 font-medium text-xs sm:text-sm ${colorInfo.textColorClass}`}>
-                              <span>{m.match}</span>
-                            </td>
-                            <td className={`py-2.5 px-3 text-center font-mono font-semibold text-xs ${colorInfo.textColorClass}`}>
-                              {m.market ? (
-                                <span className={`inline-block px-2 py-0.5 rounded border ${
-                                  colorInfo.isInMasaniello
-                                    ? 'bg-red-950/40 border-red-800/60 text-red-400'
-                                    : 'bg-slate-800/80 border-slate-700 ' + colorInfo.textColorClass
-                                }`}>
-                                  {m.market}
-                                </span>
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                            <td className={`py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm ${colorInfo.textColorClass}`}>
-                              {m.odds.toFixed(2)}
-                            </td>
-                            <td className={`py-2.5 px-3 text-xs truncate max-w-[180px] ${colorInfo.textColorClass}`}>
-                              {m.competition || '--'}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
+                            </span>
+                          </div>
+
+                          {/* Segno - Allineato a destra */}
+                          <div className="w-16 sm:w-20 shrink-0 text-right">
+                            {m.market ? (
+                              <span className={`inline-block px-2 py-0.5 rounded font-mono font-bold text-xs border ${
+                                colorInfo.isInMasaniello
+                                  ? 'bg-red-950/50 border-red-800/60 text-red-400'
+                                  : 'bg-slate-800/90 border-slate-700 ' + colorInfo.textColorClass
+                              }`}>
+                                {m.market}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 font-mono text-xs">-</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Riga 2: Partita | Quota book (allineato verticalmente a destra sotto Segno) */}
+                        <div className="flex items-center justify-between gap-2 mt-1.5 text-xs">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <span className={`font-semibold text-xs sm:text-sm truncate ${colorInfo.textColorClass}`}>
+                              {m.match}
+                            </span>
+                            {m.competition && (
+                              <span className="hidden md:inline text-[11px] text-slate-500 truncate max-w-[180px]">
+                                ({m.competition})
+                              </span>
+                            )}
+                            {colorInfo.isInMasaniello && (
+                              <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-400 bg-red-950/80 border border-red-800/60 px-1.5 py-0.5 rounded shadow-sm">
+                                Nel Masaniello
+                              </span>
+                            )}
+
+                            {/* Azioni Copia ed Elimina per il menu Elenco Partite */}
+                            <div className="flex items-center gap-1 ml-auto sm:ml-2 shrink-0">
                               <button
                                 type="button"
                                 onClick={() => handleCopyMatchTSV(m)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 hover:text-white shadow-sm transition-all cursor-pointer border border-slate-700"
-                                title={`Copia dati di "${m.match}" in formato TSV`}
+                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+                                title={`Copia "${m.match}" in formato TSV`}
                               >
                                 {copiedMatchId === m.id ? (
-                                  <>
-                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                                    <span className="text-emerald-400 font-bold">Copiato!</span>
-                                  </>
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
                                 ) : (
-                                  <>
-                                    <Copy className="w-3.5 h-3.5 text-slate-300" />
-                                    <span>COPIA</span>
-                                  </>
+                                  <Copy className="w-3.5 h-3.5" />
                                 )}
                               </button>
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              {colorInfo.isInMasaniello ? (
-                                <button
-                                  type="button"
-                                  disabled
-                                  className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed opacity-40 transition-colors"
-                                  title={`Partita già inserita nel Masaniello: impossibile eliminarla dall'elenco finché è presente nel gioco`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              ) : (
+                              {!colorInfo.isInMasaniello && (
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteSingleMatch(m)}
-                                  className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 hover:text-white border border-rose-800/40 transition-colors cursor-pointer"
+                                  className="p-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 hover:text-white border border-rose-800/40 transition-colors cursor-pointer"
                                   title={`Elimina "${m.match}" dall'elenco e dal database`}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            </div>
+                          </div>
+
+                          {/* Quota book - Allineata verticalmente sul lato destro sotto Segno */}
+                          <div className="w-16 sm:w-20 shrink-0 text-right">
+                            <span className={`font-mono font-bold text-xs sm:text-sm ${colorInfo.textColorClass}`}>
+                              {m.odds.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="flex justify-end pt-1">
                   <button
@@ -4158,93 +4195,104 @@ export default function App() {
                     </span>
                   </div>
 
-                  <div className="overflow-x-auto rounded-lg border border-slate-800">
-                    <table className="w-full text-left text-xs sm:text-sm border-collapse min-w-[700px]">
-                      <thead>
-                        <tr className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-400 sticky top-0">
-                          <th className="py-3 px-3 w-12 text-center"></th>
-                          <th className="py-3 px-3 w-24">Data</th>
-                          <th className="py-3 px-3 w-20">Ora</th>
-                          <th className="py-3 px-3 w-24">Probabilità</th>
-                          <th className="py-3 px-3 w-24">Value Edge</th>
-                          <th className="py-3 px-3">Partita</th>
-                          <th className="py-3 px-3 w-20 text-center">Segno</th>
-                          <th className="py-3 px-3 w-24 text-right">Quota Book</th>
-                          <th className="py-3 px-3 w-36 hidden md:table-cell">Competizione</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/60 font-sans">
-                        {parsedMatches.map((m) => {
-                          const colorInfo = getMatchColorInfo(m, events);
-                          return (
-                            <tr
-                              key={m.id}
-                              className={`hover:bg-slate-800/40 transition-colors ${
-                                colorInfo.isInMasaniello ? 'bg-red-950/20' : ''
-                              }`}
-                            >
-                              <td className="py-2.5 px-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleSelectMatchForEvent(importTargetIndex, m)}
-                                  className={`w-7 h-7 rounded flex items-center justify-center shadow-sm transition-all cursor-pointer mx-auto active:scale-95 text-white ${
-                                    colorInfo.isInMasaniello
-                                      ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-900/30 ring-1 ring-blue-400/40'
-                                      : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/30'
-                                  }`}
-                                  title={
-                                    colorInfo.isInMasaniello
-                                      ? `Squadra già presente nel Masaniello: clicca per inserire comunque in posizione #${importTargetIndex + 1}`
-                                      : `Inserisci ${m.match} in posizione #${importTargetIndex + 1}`
-                                  }
-                                >
-                                  <Plus className="w-4 h-4 stroke-[3]" />
-                                </button>
-                              </td>
-                              <td className={`py-2.5 px-3 font-mono whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
-                                {m.date || '--'}
-                              </td>
-                              <td className={`py-2.5 px-3 font-mono whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
-                                {m.time || '--:--'}
-                              </td>
-                              <td className={`py-2.5 px-3 font-mono font-semibold whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
+                  <div className="divide-y divide-slate-800/80 rounded-lg border border-slate-800 bg-slate-950/40">
+                    {parsedMatches.map((m) => {
+                      const colorInfo = getMatchColorInfo(m, events);
+                      return (
+                        <div
+                          key={m.id}
+                          className={`p-2.5 sm:p-3 transition-colors ${
+                            colorInfo.isInMasaniello ? 'bg-red-950/20' : 'hover:bg-slate-900/60'
+                          }`}
+                        >
+                          {/* Riga 1: Data | Ora | Probabilità | Value Edge | Segno */}
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 font-mono text-[11px] sm:text-xs">
+                              <span className={`font-semibold ${colorInfo.textColorClass}`}>
+                                {formatDateShort(m.date) || '--'}
+                              </span>
+                              <span className="text-slate-600 font-normal">|</span>
+                              <span className={`font-medium ${colorInfo.textColorClass}`}>
+                                {m.time && m.time !== '--:--' ? formatTimeShort(m.time) : '--:--'}
+                              </span>
+                              <span className="text-slate-600 font-normal">|</span>
+                              <span className={`font-semibold ${colorInfo.textColorClass}`}>
                                 {m.probabilityRaw || (m.probability !== null ? `${m.probability.toFixed(1)}%` : '--')}
-                              </td>
-                              <td className={`py-2.5 px-3 font-mono whitespace-nowrap text-xs ${colorInfo.textColorClass}`}>
+                              </span>
+                              <span className="text-slate-600 font-normal">|</span>
+                              <span className={`font-medium ${
+                                m.valueEdge && m.valueEdge.startsWith('+')
+                                  ? 'text-emerald-400'
+                                  : m.valueEdge && m.valueEdge.startsWith('-')
+                                  ? 'text-rose-400'
+                                  : colorInfo.textColorClass
+                              }`}>
                                 {m.valueEdge || '--'}
-                              </td>
-                              <td className={`py-2.5 px-3 font-medium text-xs sm:text-sm ${colorInfo.textColorClass}`}>
-                                <span>{m.match}</span>
-                                {colorInfo.isInMasaniello && (
-                                  <span className="ml-2 inline-block text-[10px] font-bold uppercase tracking-wider text-red-400 bg-red-950/80 border border-red-800/60 px-1.5 py-0.5 rounded shadow-sm">
-                                    Nel Masaniello
-                                  </span>
-                                )}
-                              </td>
-                              <td className={`py-2.5 px-3 text-center font-mono font-semibold text-xs ${colorInfo.textColorClass}`}>
-                                {m.market ? (
-                                  <span className={`inline-block px-2 py-0.5 rounded border ${
-                                    colorInfo.isInMasaniello
-                                      ? 'bg-red-950/40 border-red-800/60 text-red-400'
-                                      : 'bg-slate-800/80 border-slate-700 ' + colorInfo.textColorClass
-                                  }`}>
-                                    {m.market}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-600">-</span>
-                                )}
-                              </td>
-                              <td className={`py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm ${colorInfo.textColorClass}`}>
+                              </span>
+                            </div>
+
+                            {/* Segno - Allineato a destra */}
+                            <div className="w-16 sm:w-20 shrink-0 text-right">
+                              {m.market ? (
+                                <span className={`inline-block px-2 py-0.5 rounded font-mono font-bold text-xs border ${
+                                  colorInfo.isInMasaniello
+                                    ? 'bg-red-950/50 border-red-800/60 text-red-400'
+                                    : 'bg-slate-800/90 border-slate-700 ' + colorInfo.textColorClass
+                                }`}>
+                                  {m.market}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600 font-mono text-xs">-</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Riga 2: Tasto "+" posizionato tassativamente all'inizio della riga della partita | Partita | Quota book */}
+                          <div className="flex items-center justify-between gap-2 mt-1.5 text-xs">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              {/* Tasto "+" posizionato tassativamente all'inizio della riga della partita */}
+                              <button
+                                type="button"
+                                onClick={() => handleSelectMatchForEvent(importTargetIndex, m)}
+                                className={`w-6 h-6 rounded flex items-center justify-center shadow-sm transition-all cursor-pointer shrink-0 active:scale-95 text-white ${
+                                  colorInfo.isInMasaniello
+                                    ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-900/30 ring-1 ring-blue-400/40'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/30'
+                                }`}
+                                title={
+                                  colorInfo.isInMasaniello
+                                    ? `Squadra già presente nel Masaniello: clicca per inserire comunque in posizione #${importTargetIndex + 1}`
+                                    : `Inserisci ${m.match} in posizione #${importTargetIndex + 1}`
+                                }
+                              >
+                                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                              </button>
+
+                              <span className={`font-semibold text-xs sm:text-sm truncate ${colorInfo.textColorClass}`}>
+                                {m.match}
+                              </span>
+                              {m.competition && (
+                                <span className="hidden md:inline text-[11px] text-slate-500 truncate max-w-[180px]">
+                                  ({m.competition})
+                                </span>
+                              )}
+                              {colorInfo.isInMasaniello && (
+                                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-400 bg-red-950/80 border border-red-800/60 px-1.5 py-0.5 rounded shadow-sm">
+                                  Nel Masaniello
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Quota book - Allineata verticalmente sul lato destro sotto Segno */}
+                            <div className="w-16 sm:w-20 shrink-0 text-right">
+                              <span className={`font-mono font-bold text-xs sm:text-sm ${colorInfo.textColorClass}`}>
                                 {m.odds.toFixed(2)}
-                              </td>
-                              <td className={`py-2.5 px-3 text-xs truncate max-w-[160px] hidden md:table-cell ${colorInfo.textColorClass}`}>
-                                {m.competition || '--'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -4465,6 +4513,11 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Footer con versione */}
+      <footer className="border-t border-slate-800/80 bg-slate-900/60 py-4 px-4 text-center text-xs text-slate-400 font-mono">
+        Versione del 31/10/26 ore 01:11
+      </footer>
     </div>
   );
 }
