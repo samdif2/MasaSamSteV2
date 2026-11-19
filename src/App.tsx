@@ -442,6 +442,95 @@ const ROUND_STAKES_KEY = 'masaniello_round_stakes';
 const SYNC_CODE_KEY = 'masaniello_sync_code';
 const TITLE_STORAGE_KEY = 'masaniello_active_title';
 const SESSIONS_HISTORY_KEY = 'masaniello_sessions_history';
+const ODDSPAPI_KEY_STORAGE_KEY = 'oddspapi_api_key';
+
+interface BetfairImportedRow {
+  id: string;
+  data: string;
+  ora: string;
+  segno: string;
+  prob: string;
+  partita: string;
+  campionato: string;
+  quota: string;
+  value: string;
+  timestampMs: number;
+}
+
+function getTodayRomeYmd(): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function getRomeOffsetMs(utcMs: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(utcMs));
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+  const romeAsUtc = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(map.hour),
+    Number(map.minute),
+    Number(map.second)
+  );
+  return romeAsUtc - utcMs;
+}
+
+function getRomeDayRangeUtcWithMargin(ymd: string): { fromIso: string; toIso: string } {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const approxStartUtc = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const startOffset = getRomeOffsetMs(approxStartUtc);
+  const romeStartUtc = approxStartUtc - startOffset;
+
+  const approxEndUtc = Date.UTC(y, m - 1, d, 23, 59, 59);
+  const endOffset = getRomeOffsetMs(approxEndUtc);
+  const romeEndUtc = approxEndUtc - endOffset;
+
+  const marginMs = 4 * 60 * 60 * 1000;
+  const fromIso = new Date(romeStartUtc - marginMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const toIso = new Date(romeEndUtc + marginMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return { fromIso, toIso };
+}
+
+function formatDateTimeRome(isoDateStr: string): { ymd: string; data: string; ora: string; timestampMs: number } | null {
+  const dt = new Date(isoDateStr);
+  if (isNaN(dt.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(dt);
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+  if (!map.year || !map.month || !map.day || !map.hour || !map.minute) return null;
+  return {
+    ymd: `${map.year}-${map.month}-${map.day}`,
+    data: `${map.day}/${map.month}/${map.year}`,
+    ora: `${map.hour}:${map.minute}`,
+    timestampMs: dt.getTime(),
+  };
+}
 // Formatta il titolo predefinito nel formato "Masa [GG-MM-AA]" (es. "Masa 11-10-26")
 function getDefaultTitle(date: Date = new Date()): string {
   const day = String(date.getDate()).padStart(2, '0');
@@ -562,8 +651,8 @@ function calculateStake(
 }
 
 export default function App() {
-  // Navigation state ('masaniello' or 'elenco_partite')
-  const [currentPage, setCurrentPage] = useState<'masaniello' | 'elenco_partite'>('masaniello');
+  // Navigation state ('masaniello', 'elenco_partite', or 'importa_betfair')
+  const [currentPage, setCurrentPage] = useState<'masaniello' | 'elenco_partite' | 'importa_betfair'>('masaniello');
 
   // Config state
   const [config, setConfig] = useState<MasanielloConfig>({
@@ -635,6 +724,167 @@ export default function App() {
   const [copiedMatchId, setCopiedMatchId] = useState<number | null>(null);
   // Stato feedback copia TSV per le partite nella Home (Masaniello)
   const [copiedMasaTSV, setCopiedMasaTSV] = useState(false);
+
+  // Stato pagina Importa da betfair (OddsPapi)
+  const [betfairDate, setBetfairDate] = useState<string>(() => getTodayRomeYmd());
+  const [oddsPapiKey, setOddsPapiKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem(ODDSPAPI_KEY_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+  const [betfairFixtures, setBetfairFixtures] = useState<BetfairImportedRow[]>([]);
+  const [betfairLoading, setBetfairLoading] = useState<boolean>(false);
+  const [betfairError, setBetfairError] = useState<string>('');
+
+  const handleOddsPapiKeyChange = (val: string) => {
+    setOddsPapiKey(val);
+    try {
+      localStorage.setItem(ODDSPAPI_KEY_STORAGE_KEY, val);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleImportFromOddsPapi = async () => {
+    const trimmedDate = betfairDate.trim();
+    const trimmedKey = oddsPapiKey.trim();
+
+    if (!trimmedDate) {
+      setBetfairError('Seleziona una data valida prima di procedere con l\'importazione.');
+      return;
+    }
+    if (!trimmedKey) {
+      setBetfairError('Inserisci la API Key di OddsPapi prima di procedere.');
+      return;
+    }
+
+    setBetfairLoading(true);
+    setBetfairError('');
+
+    try {
+      const { fromIso, toIso } = getRomeDayRangeUtcWithMargin(trimmedDate);
+      const params = new URLSearchParams({
+        sportId: '10',
+        apiKey: trimmedKey,
+        from: fromIso,
+        to: toIso,
+      });
+
+      const response = await fetch(`https://api.oddspapi.io/v4/fixtures?${params.toString()}`);
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const apiMsg =
+          payload?.message ||
+          payload?.error ||
+          payload?.detail ||
+          `Errore HTTP ${response.status} durante la chiamata a OddsPapi.`;
+        throw new Error(String(apiMsg));
+      }
+
+      const rawFixtures: any[] = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.fixtures)
+        ? payload.fixtures
+        : Array.isArray(payload?.results)
+        ? payload.results
+        : [];
+
+      const rows: BetfairImportedRow[] = [];
+
+      for (let i = 0; i < rawFixtures.length; i++) {
+        const f = rawFixtures[i];
+        if (!f || typeof f !== 'object') continue;
+
+        const statusName = String(f.statusName || '').toLowerCase();
+        if (f.statusId === 3 || statusName === 'cancelled' || statusName === 'canceled') {
+          continue;
+        }
+
+        const startIso = f.startTime || f.start_time || f.date;
+        if (!startIso) continue;
+
+        const romeInfo = formatDateTimeRome(String(startIso));
+        if (!romeInfo || romeInfo.ymd !== trimmedDate) continue;
+
+        const home = String(
+          f.participant1Name || f.homeTeam || f.home || f.participant1?.name || ''
+        ).trim();
+        const away = String(
+          f.participant2Name || f.awayTeam || f.away || f.participant2?.name || ''
+        ).trim();
+        if (!home || !away) continue;
+
+        const tournament = String(f.tournamentName || f.tournament?.name || '').trim();
+        const category = String(f.categoryName || f.category?.name || '').trim();
+        const campionato =
+          tournament && category && !tournament.toLowerCase().includes(category.toLowerCase())
+            ? `${tournament} - ${category}`
+            : tournament || category || '';
+
+        rows.push({
+          id: String(f.fixtureId || f.id || `${trimmedDate}-${i}`),
+          data: romeInfo.data,
+          ora: romeInfo.ora,
+          segno: 'O 0.5',
+          prob: '90%',
+          partita: `${home} - ${away}`,
+          campionato,
+          quota: '1.20',
+          value: '+5%',
+          timestampMs: romeInfo.timestampMs,
+        });
+      }
+
+      rows.sort((a, b) => a.timestampMs - b.timestampMs);
+      setBetfairFixtures(rows);
+
+      if (rows.length === 0) {
+        setBetfairError(`Nessuna partita calcistica trovata su OddsPapi per la data selezionata.`);
+      }
+    } catch (err: any) {
+      setBetfairFixtures([]);
+      setBetfairError(err?.message || 'Errore imprevisto durante il recupero delle partite da OddsPapi.');
+    } finally {
+      setBetfairLoading(false);
+    }
+  };
+
+  const handleInsertBetfairSchedule = () => {
+    if (betfairFixtures.length === 0) return;
+    const tsvLines = betfairFixtures.map((row) =>
+      [
+        row.data,
+        row.ora,
+        row.segno,
+        row.prob,
+        row.partita,
+        row.campionato,
+        row.quota,
+        row.value,
+      ].join('\t')
+    );
+    const blockToAppend = tsvLines.join('\n');
+
+    setMatchesListText((prev) => {
+      if (!prev || prev.trim().length === 0) {
+        return blockToAppend;
+      }
+      const needsNewline = !prev.endsWith('\n') && !prev.endsWith('\r\n');
+      return needsNewline ? `${prev}\n${blockToAppend}` : `${prev}${blockToAppend}`;
+    });
+
+    setCurrentPage('elenco_partite');
+  };
 
   // Funzione per copiare i dati della singola partita in formato TSV con un TAB reale tra i campi
   const handleCopyMatchTSV = async (m: ParsedMatchItem) => {
@@ -2471,15 +2721,25 @@ export default function App() {
             <div className="w-9 h-9 rounded-lg border flex items-center justify-center bg-blue-600/20 border-blue-500/30 text-blue-400">
               {currentPage === 'masaniello' ? (
                 <Calculator className="w-5 h-5" />
+              ) : currentPage === 'importa_betfair' ? (
+                <Download className="w-5 h-5" />
               ) : (
                 <ClipboardList className="w-5 h-5" />
               )}
             </div>
             <div>
               <h1 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                {currentPage === 'masaniello' ? 'Masa SamSte v2' : 'Elenco Partite'}
+                {currentPage === 'masaniello'
+                  ? 'Masa SamSte v2'
+                  : currentPage === 'importa_betfair'
+                  ? 'Importa da betfair'
+                  : 'Elenco Partite'}
                 <span className="text-[11px] font-medium border rounded px-1.5 py-0.5 text-slate-400 border-slate-700">
-                  {currentPage === 'masaniello' ? 'Money Management' : 'Pronostici'}
+                  {currentPage === 'masaniello'
+                    ? 'Money Management'
+                    : currentPage === 'importa_betfair'
+                    ? 'OddsPapi'
+                    : 'Pronostici'}
                 </span>
               </h1>
             </div>
@@ -2517,6 +2777,15 @@ export default function App() {
                   <span>Nuovo Masaniello</span>
                 </button>
               </>
+            ) : currentPage === 'importa_betfair' ? (
+              <button
+                type="button"
+                onClick={() => setCurrentPage('elenco_partite')}
+                className="text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Torna a Elenco Partite</span>
+              </button>
             ) : (
               <button
                 type="button"
@@ -3538,7 +3807,7 @@ export default function App() {
           </button>
         </div>
       </main>
-      ) : (
+      ) : currentPage === 'elenco_partite' ? (
         /* Second Page: Elenco Partite */
         <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 space-y-5">
           <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 sm:p-6 space-y-4">
@@ -3553,11 +3822,19 @@ export default function App() {
                   <ArrowLeft className="w-4 h-4" />
                   <span>Chiudi / Torna al Masaniello</span>
                 </button>
-                <div>
+                <div className="flex flex-col items-start gap-1.5">
                   <h2 className="text-base font-semibold text-white flex items-center gap-2">
                     <ClipboardList className="w-5 h-5 text-blue-400" />
                     Elenco Partite
                   </h2>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage('importa_betfair')}
+                    className="text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-white border border-amber-500/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer shadow-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Importa da betfair</span>
+                  </button>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -3795,6 +4072,183 @@ export default function App() {
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Torna al Masaniello</span>
               </button>
+            </div>
+          </section>
+        </main>
+      ) : (
+        /* Third Page: Importa da betfair (OddsPapi) */
+        <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 space-y-5">
+          <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 sm:p-6 space-y-5">
+            {/* Intestazione con pulsante per tornare a Elenco Partite */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('elenco_partite')}
+                  className="text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Torna a Elenco Partite</span>
+                </button>
+                <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                  <Download className="w-5 h-5 text-amber-400" />
+                  <span>Importa da betfair</span>
+                </h2>
+              </div>
+            </div>
+
+            {/* Barra superiore: Campo Data | Campo API Key | Pulsante IMPORTA */}
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4">
+              <div className="flex flex-row flex-wrap items-end gap-3">
+                {/* a) Campo Data (solo calendario nativo, no input manuale da tastiera) */}
+                <div className="flex flex-col gap-1.5 w-40 sm:w-48 shrink-0">
+                  <label htmlFor="betfair-date-picker" className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Data</span>
+                  </label>
+                  <input
+                    id="betfair-date-picker"
+                    type="date"
+                    value={betfairDate}
+                    onChange={(e) => setBetfairDate(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Tab' && e.key !== 'Escape') {
+                        e.preventDefault();
+                      }
+                    }}
+                    onPaste={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      const input = e.currentTarget as HTMLInputElement & { showPicker?: () => void };
+                      if (typeof input.showPicker === 'function') {
+                        try {
+                          input.showPicker();
+                        } catch {
+                          // ignore if already open or unsupported
+                        }
+                      }
+                    }}
+                    onFocus={(e) => {
+                      const input = e.currentTarget as HTMLInputElement & { showPicker?: () => void };
+                      if (typeof input.showPicker === 'function') {
+                        try {
+                          input.showPicker();
+                        } catch {
+                          // ignore if browser requires direct click gesture
+                        }
+                      }
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 hover:border-slate-600 focus:border-blue-500 rounded-lg px-3 py-2 text-xs sm:text-sm text-white font-mono cursor-pointer focus:outline-none transition-colors"
+                  />
+                </div>
+
+                {/* b) Campo API Key (a destra della data, salvato automaticamente in localStorage) */}
+                <div className="flex flex-col gap-1.5 flex-1 min-w-[180px]">
+                  <label htmlFor="oddspapi-api-key" className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>API Key OddsPapi</span>
+                  </label>
+                  <input
+                    id="oddspapi-api-key"
+                    type="password"
+                    value={oddsPapiKey}
+                    onChange={(e) => handleOddsPapiKeyChange(e.target.value)}
+                    placeholder="Inserisci la tua API Key OddsPapi..."
+                    autoComplete="off"
+                    className="w-full bg-slate-900 border border-slate-700 hover:border-slate-600 focus:border-blue-500 rounded-lg px-3 py-2 text-xs sm:text-sm text-white font-mono placeholder-slate-500 focus:outline-none transition-colors"
+                  />
+                </div>
+
+                {/* c) Pulsante IMPORTA */}
+                <div className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleImportFromOddsPapi}
+                    disabled={betfairLoading}
+                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-2 rounded-lg text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  >
+                    {betfairLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>IMPORTAZIONE...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        <span>IMPORTA</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {betfairError && (
+                <div className="mt-3 p-3 rounded-lg bg-rose-950/50 border border-rose-800/60 text-rose-200 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{betfairError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Area sottostante: Pulsante "Inserisci palinsesto" sopra la tabella + Tabella 8 colonne */}
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  disabled={betfairFixtures.length === 0}
+                  onClick={handleInsertBetfairSchedule}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:border disabled:border-slate-700 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded-lg text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Inserisci palinsesto</span>
+                </button>
+
+                {betfairFixtures.length > 0 && (
+                  <span className="text-xs font-mono text-slate-400">
+                    {betfairFixtures.length} {betfairFixtures.length === 1 ? 'partita importata' : 'partite importate'}
+                  </span>
+                )}
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/40">
+                <table className="w-full text-left text-xs sm:text-sm border-collapse min-w-[760px]">
+                  <thead>
+                    <tr className="bg-slate-950/80 border-b border-slate-800 text-xs font-semibold tracking-wide text-slate-300">
+                      <th className="py-3 px-3">Data</th>
+                      <th className="py-3 px-3">ora</th>
+                      <th className="py-3 px-3">segno</th>
+                      <th className="py-3 px-3">Prob</th>
+                      <th className="py-3 px-3">Partita</th>
+                      <th className="py-3 px-3">Campionato</th>
+                      <th className="py-3 px-3 text-right">Quota</th>
+                      <th className="py-3 px-3 text-right">value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-sans">
+                    {betfairFixtures.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-10 px-4 text-center text-xs text-slate-500">
+                          {betfairLoading
+                            ? 'Caricamento palinsesto da OddsPapi in corso...'
+                            : 'Seleziona una data, inserisci la API Key e clicca su "IMPORTA" per caricare le partite.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      betfairFixtures.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-900/60 transition-colors">
+                          <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs text-slate-200">{row.data}</td>
+                          <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs text-slate-200">{row.ora}</td>
+                          <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs font-semibold text-blue-300">{row.segno}</td>
+                          <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs text-emerald-400 font-semibold">{row.prob}</td>
+                          <td className="py-2.5 px-3 font-medium text-xs sm:text-sm text-white">{row.partita}</td>
+                          <td className="py-2.5 px-3 text-xs text-slate-300">{row.campionato || '--'}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-white">{row.quota}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-semibold text-xs text-emerald-400">{row.value}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
         </main>
