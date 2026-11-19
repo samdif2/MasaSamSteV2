@@ -844,11 +844,12 @@ export default function App() {
       const { fromIso, toIso } = getRomeExactDayRangeUtc(trimmedDate);
       const params = new URLSearchParams({
         sportId: '10',
-        apiKey: trimmedKey,
         from: fromIso,
         to: toIso,
+        hasOdds: 'true',
         bookmakers: 'betfair-ex',
         language: 'en',
+        apiKey: trimmedKey,
       });
 
       const response = await fetch(`https://api.oddspapi.io/v4/fixtures?${params.toString()}`);
@@ -889,14 +890,19 @@ export default function App() {
         const f = rawFixtures[i];
         if (!f || typeof f !== 'object') continue;
 
+        if (f.hasOdds === false) continue;
+
         const rawId = f.fixtureId ?? f.id;
         const fixtureId = rawId !== undefined && rawId !== null ? String(rawId).trim() : '';
-        if (!fixtureId) continue;
 
-        if (seenIds.has(fixtureId)) continue;
+        const rawTournamentId = f.tournamentId ?? f.tournament?.id ?? f.categoryId ?? f.category?.id;
+        const tournamentId =
+          rawTournamentId !== undefined && rawTournamentId !== null ? String(rawTournamentId).trim() : '';
 
         const startIso = f.startTime ?? f.start_time ?? f.date;
-        if (!startIso) continue;
+        if (!fixtureId || !tournamentId || !startIso) continue;
+
+        if (seenIds.has(fixtureId)) continue;
 
         const romeInfo = formatDateTimeRome(String(startIso));
         if (!romeInfo || romeInfo.ymd !== trimmedDate) continue;
