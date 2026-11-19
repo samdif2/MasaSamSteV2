@@ -531,6 +531,57 @@ function formatDateTimeRome(isoDateStr: string): { ymd: string; data: string; or
     timestampMs: dt.getTime(),
   };
 }
+
+function formatRomeHeaderDateTime(nowMs: number): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Rome',
+    year: '2-digit',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(nowMs));
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+  return `${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}`;
+}
+
+function parseRomeDateTimeToUtcMs(dateStr: string, timeStr: string): number | null {
+  if (!dateStr || !dateStr.trim() || !timeStr || !timeStr.trim() || timeStr.trim() === '--:--') {
+    return null;
+  }
+  const d = dateStr.trim();
+  const t = timeStr.trim().replace('.', ':');
+
+  let day = 0, month = 0, year = 0;
+  const itMatch = d.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if (itMatch) {
+    day = parseInt(itMatch[1], 10);
+    month = parseInt(itMatch[2], 10);
+    let y = parseInt(itMatch[3], 10);
+    if (y < 100) y += 2000;
+    year = y;
+  } else {
+    const isoMatch = d.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+    if (isoMatch) {
+      year = parseInt(isoMatch[1], 10);
+      month = parseInt(isoMatch[2], 10);
+      day = parseInt(isoMatch[3], 10);
+    } else {
+      return null;
+    }
+  }
+
+  const tMatch = t.match(/^(\d{1,2})[:\.](\d{2})/);
+  if (!tMatch) return null;
+  const hours = parseInt(tMatch[1], 10);
+  const minutes = parseInt(tMatch[2], 10);
+
+  const approxUtc = Date.UTC(year, month - 1, day, hours, minutes, 0);
+  const offsetMs = getRomeOffsetMs(approxUtc);
+  return approxUtc - offsetMs;
+}
 // Formatta il titolo predefinito nel formato "Masa [GG-MM-AA]" (es. "Masa 11-10-26")
 function getDefaultTitle(date: Date = new Date()): string {
   const day = String(date.getDate()).padStart(2, '0');
@@ -700,11 +751,34 @@ export default function App() {
 
   // Popup modal state: target event index for match import (null when modal is closed)
   const [importTargetIndex, setImportTargetIndex] = useState<number | null>(null);
+  const [popupTimeFilter, setPopupTimeFilter] = useState<'all' | '2h' | '4h' | '6h'>('all');
+  const [popupNowMs, setPopupNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (importTargetIndex === null) return;
+    setPopupNowMs(Date.now());
+    const interval = setInterval(() => {
+      setPopupNowMs(Date.now());
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [importTargetIndex]);
 
   // Parsed matches from the text in Elenco Partite
   const parsedMatches = useMemo(() => {
     return parseMatchesList(matchesListText);
   }, [matchesListText]);
+
+  const filteredPopupMatches = useMemo(() => {
+    if (popupTimeFilter === 'all') return parsedMatches;
+    const hoursMap: Record<'2h' | '4h' | '6h', number> = { '2h': 2, '4h': 4, '6h': 6 };
+    const startMs = Math.floor(popupNowMs / 60000) * 60000;
+    const endMs = startMs + hoursMap[popupTimeFilter] * 60 * 60 * 1000;
+    return parsedMatches.filter((m) => {
+      const matchUtcMs = parseRomeDateTimeToUtcMs(m.date, m.time);
+      if (matchUtcMs === null) return false;
+      return matchUtcMs >= startMs && matchUtcMs <= endMs;
+    });
+  }, [parsedMatches, popupTimeFilter, popupNowMs]);
 
   // Tab di visualizzazione nella pagina Elenco Partite: 'table' (anteprima colorata) o 'text' (incolla TSV)
   const [matchesViewTab, setMatchesViewTab] = useState<'table' | 'text'>('table');
@@ -4466,25 +4540,62 @@ export default function App() {
       {importTargetIndex !== null && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            {/* Modal Header: Tasto di chiusura sulla sinistra in alto */}
-            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-950/60">
-              <button
-                type="button"
-                onClick={() => setImportTargetIndex(null)}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer shrink-0"
-                title="Chiudi / Torna al Masaniello"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Chiudi / Torna</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setImportTargetIndex(null)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-                title="Chiudi"
-              >
-                <X className="w-5 h-5" />
-              </button>
+            {/* Modal Header: Tasto di chiusura + Titolo con Data/Ora Europe/Rome + Filtri Orari */}
+            <div className="p-4 sm:p-5 border-b border-slate-800 space-y-3 bg-slate-950/60">
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setImportTargetIndex(null)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer shrink-0"
+                  title="Chiudi / Torna al Masaniello"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Chiudi / Torna</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportTargetIndex(null)}
+                  className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                  title="Chiudi"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4 text-blue-400 shrink-0" />
+                  <span>Partite disponibili - {formatRomeHeaderDateTime(popupNowMs)}</span>
+                </h3>
+
+                {/* 4 Pulsanti scelta rapida per filtro orario */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      { key: 'all', label: 'Tutte' },
+                      { key: '2h', label: '2 ore' },
+                      { key: '4h', label: '4 ore' },
+                      { key: '6h', label: '6 ore' },
+                    ] as const
+                  ).map((opt) => {
+                    const isActive = popupTimeFilter === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setPopupTimeFilter(opt.key)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer border ${
+                          isActive
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                            : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             {/* Modal Body */}
@@ -4510,33 +4621,20 @@ export default function App() {
                     <span>Vai a Elenco Partite</span>
                   </button>
                 </div>
+              ) : filteredPopupMatches.length === 0 ? (
+                <div className="py-12 text-center space-y-3 rounded-lg border border-slate-800 bg-slate-950/40">
+                  <Clock className="w-8 h-8 text-slate-500 mx-auto" />
+                  <h4 className="text-sm font-semibold text-slate-200">
+                    Nessuna partita trovata nell'intervallo orario selezionato
+                  </h4>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Non ci sono partite con orario d'inizio compreso nella finestra scelta. Seleziona un altro filtro o clicca su "Tutte".
+                  </p>
+                </div>
               ) : (
                 <div className="space-y-3">
-                  {/* Legenda Colori nel Popup */}
-                  <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-2.5 text-[11px] flex flex-wrap items-center gap-x-4 gap-y-1.5">
-                    <span className="font-semibold text-slate-300">Colori:</span>
-                    <span className="flex items-center gap-1 font-medium text-slate-400">
-                      <span className="w-2 h-2 rounded-full bg-slate-400"></span> &lt; 62% (Grigio)
-                    </span>
-                    <span className="flex items-center gap-1 font-medium text-white">
-                      <span className="w-2 h-2 rounded-full bg-white"></span> 62%-64% / default (Bianco)
-                    </span>
-                    <span className="flex items-center gap-1 font-medium text-yellow-400">
-                      <span className="w-2 h-2 rounded-full bg-yellow-400"></span> &gt; 64%-66% (Giallo)
-                    </span>
-                    <span className="flex items-center gap-1 font-medium text-sky-400">
-                      <span className="w-2 h-2 rounded-full bg-sky-400"></span> &gt; 66%-68% (Azzurro)
-                    </span>
-                    <span className="flex items-center gap-1 font-medium text-emerald-400">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span> &gt; 68% (Verde)
-                    </span>
-                    <span className="flex items-center gap-1 font-medium text-red-500 font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-red-500"></span> Nel Masaniello (Rosso)
-                    </span>
-                  </div>
-
                   <div className="divide-y divide-slate-800/80 rounded-lg border border-slate-800 bg-slate-950/40">
-                    {parsedMatches.map((m) => {
+                    {filteredPopupMatches.map((m) => {
                       const colorInfo = getMatchColorInfo(m, events);
                       return (
                         <div
@@ -4611,11 +4709,6 @@ export default function App() {
                               <span className={`font-semibold text-xs sm:text-sm truncate ${colorInfo.textColorClass}`}>
                                 {m.match}
                               </span>
-                              {m.competition && (
-                                <span className="hidden md:inline text-[11px] text-slate-500 truncate max-w-[180px]">
-                                  ({m.competition})
-                                </span>
-                              )}
                               {colorInfo.isInMasaniello && (
                                 <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-400 bg-red-950/80 border border-red-800/60 px-1.5 py-0.5 rounded shadow-sm">
                                   Nel Masaniello
@@ -4630,6 +4723,14 @@ export default function App() {
                               </span>
                             </div>
                           </div>
+
+                          {/* Riga 3: Campionato / Competizione / Nazione */}
+                          <div className="mt-1.5 pl-8 text-[11px] text-slate-400 flex items-center gap-1.5 min-w-0">
+                            <span className="text-slate-500 shrink-0">Competizione:</span>
+                            <span className={`truncate ${colorInfo.isInMasaniello ? 'text-red-300/90' : 'text-slate-300'}`}>
+                              {m.competition || 'Non specificata'}
+                            </span>
+                          </div>
                         </div>
                       );
                     })}
@@ -4641,7 +4742,11 @@ export default function App() {
             {/* Modal Footer */}
             <div className="p-3.5 sm:p-4 border-t border-slate-800 bg-slate-950/40 flex items-center justify-between text-xs text-slate-400">
               <span className="flex items-center gap-1.5 font-mono">
-                <span>{parsedMatches.length} partite totali disponibili nell'elenco</span>
+                <span>
+                  {popupTimeFilter === 'all'
+                    ? `${filteredPopupMatches.length} partite totali disponibili nell'elenco`
+                    : `${filteredPopupMatches.length} di ${parsedMatches.length} partite disponibili`}
+                </span>
               </span>
               <div className="flex items-center gap-2">
                 <button
