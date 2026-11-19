@@ -883,6 +883,7 @@ export default function App() {
       return needsNewline ? `${prev}\n${blockToAppend}` : `${prev}${blockToAppend}`;
     });
 
+    setMatchesViewTab('table');
     setCurrentPage('elenco_partite');
   };
 
@@ -2713,7 +2714,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans pb-20">
       {/* Top Header Bar */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30 px-4 sm:px-8 py-3.5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -2723,6 +2724,8 @@ export default function App() {
                 <Calculator className="w-5 h-5" />
               ) : currentPage === 'importa_betfair' ? (
                 <Download className="w-5 h-5" />
+              ) : matchesViewTab === 'text' ? (
+                <FileCode className="w-5 h-5" />
               ) : (
                 <ClipboardList className="w-5 h-5" />
               )}
@@ -2733,12 +2736,16 @@ export default function App() {
                   ? 'Masa SamSte v2'
                   : currentPage === 'importa_betfair'
                   ? 'Importa da betfair'
+                  : matchesViewTab === 'text'
+                  ? 'Modifica Elenco'
                   : 'Elenco Partite'}
                 <span className="text-[11px] font-medium border rounded px-1.5 py-0.5 text-slate-400 border-slate-700">
                   {currentPage === 'masaniello'
                     ? 'Money Management'
                     : currentPage === 'importa_betfair'
                     ? 'OddsPapi'
+                    : matchesViewTab === 'text'
+                    ? 'TSV'
                     : 'Pronostici'}
                 </span>
               </h1>
@@ -2758,42 +2765,14 @@ export default function App() {
               <span className="hidden sm:inline">Supabase</span>
             </button>
 
-            {currentPage === 'masaniello' ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage('elenco_partite')}
-                  className="text-xs bg-blue-950/50 hover:bg-blue-900/60 text-blue-300 border border-blue-700/50 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer"
-                >
-                  <ClipboardList className="w-3.5 h-3.5" />
-                  <span>Elenco Partite</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowResetModal(true)}
-                  className="text-xs bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Nuovo Masaniello</span>
-                </button>
-              </>
-            ) : currentPage === 'importa_betfair' ? (
+            {currentPage === 'masaniello' && (
               <button
                 type="button"
-                onClick={() => setCurrentPage('elenco_partite')}
-                className="text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                onClick={() => setShowResetModal(true)}
+                className="text-xs bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer"
               >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Torna a Elenco Partite</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setCurrentPage('masaniello')}
-                className="text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Torna al Masaniello</span>
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Nuovo Masaniello</span>
               </button>
             )}
           </div>
@@ -3148,14 +3127,6 @@ export default function App() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setCurrentPage('elenco_partite')}
-                className="text-xs bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-750 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer"
-              >
-                <ClipboardList className="w-3.5 h-3.5 text-blue-400" />
-                <span>Elenco Partite</span>
-              </button>
               <div className="text-xs text-slate-400 flex items-center gap-3">
                 <span className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Vinta
@@ -3813,32 +3784,22 @@ export default function App() {
           <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 sm:p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage('masaniello')}
-                  className="text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
-                  title="Torna al Masaniello (Chiudi Elenco)"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Chiudi / Torna al Masaniello</span>
-                </button>
-                <div className="flex flex-col items-start gap-1.5">
-                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                    <ClipboardList className="w-5 h-5 text-blue-400" />
-                    Elenco Partite
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage('importa_betfair')}
-                    className="text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-white border border-amber-500/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5 font-medium transition-colors cursor-pointer shadow-xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Importa da betfair</span>
-                  </button>
-                </div>
+                <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                  {matchesViewTab === 'text' ? (
+                    <>
+                      <FileCode className="w-5 h-5 text-blue-400" />
+                      Modifica Elenco
+                    </>
+                  ) : (
+                    <>
+                      <ClipboardList className="w-5 h-5 text-blue-400" />
+                      Elenco Partite ({parsedMatches.length})
+                    </>
+                  )}
+                </h2>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
-                {/* Tasto "Elimina partite" a sinistra del riquadro blu */}
+                {/* Tasto "Elimina partite" */}
                 <button
                   type="button"
                   onClick={openDeleteBeforeModal}
@@ -3848,28 +3809,6 @@ export default function App() {
                   <Clock className="w-3.5 h-3.5 text-rose-400" />
                   <span>Elimina partite</span>
                 </button>
-
-                {/* Riquadro blu con Partite e Incolla Elenso */}
-                <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setMatchesViewTab('table')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                      matchesViewTab === 'table' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Partite ({parsedMatches.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMatchesViewTab('text')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                      matchesViewTab === 'text' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Modifica Elenco
-                  </button>
-                </div>
 
                 <button
                   type="button"
@@ -3891,30 +3830,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Legenda Colori Probabilità & Masaniello */}
-            <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3 text-xs flex flex-wrap items-center gap-x-5 gap-y-2">
-              <span className="font-semibold text-slate-300">Legenda Colori Carattere:</span>
-              <span className="flex items-center gap-1.5 font-medium text-slate-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span> &lt; 62%: Grigio
-              </span>
-              <span className="flex items-center gap-1.5 font-medium text-white">
-                <span className="w-2.5 h-2.5 rounded-full bg-white"></span> 62% - 64% o non espressa: Bianco
-              </span>
-              <span className="flex items-center gap-1.5 font-medium text-yellow-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400"></span> &gt; 64% - 66%: Giallo
-              </span>
-              <span className="flex items-center gap-1.5 font-medium text-sky-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span> &gt; 66% - 68%: Azzurro
-              </span>
-              <span className="flex items-center gap-1.5 font-medium text-emerald-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> &gt; 68%: Verde
-              </span>
-              <span className="flex items-center gap-1.5 font-medium text-red-500 font-semibold">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span> Squadra nel Masaniello: Rosso
-              </span>
-            </div>
-
-            {matchesViewTab === 'table' && parsedMatches.length > 0 ? (
+            {matchesViewTab === 'table' ? (
+              parsedMatches.length > 0 ? (
               <div className="space-y-3">
                 <div className="divide-y divide-slate-800/80 rounded-lg border border-slate-800 bg-slate-950/40">
                   {parsedMatches.map((m) => {
@@ -4023,17 +3940,16 @@ export default function App() {
                     );
                   })}
                 </div>
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setMatchesViewTab('text')}
-                    className="text-xs text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <span>Modifica Elenco (TSV)</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
               </div>
+              ) : (
+                <div className="py-12 text-center space-y-2 rounded-lg border border-slate-800 bg-slate-950/40">
+                  <ClipboardList className="w-8 h-8 text-slate-500 mx-auto" />
+                  <p className="text-sm font-medium text-slate-300">Nessuna partita presente nell'elenco</p>
+                  <p className="text-xs text-slate-500">
+                    Usa "Mod.Elenco" o "Palinsesto" nella barra in basso per inserire nuove partite.
+                  </p>
+                </div>
+              )
             ) : (
               <div className="space-y-3">
                 <textarea
@@ -4044,18 +3960,6 @@ export default function App() {
                   className="w-full min-h-[480px] bg-slate-950/80 border border-slate-800 rounded-xl p-4 font-mono text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors resize-y leading-relaxed"
                   spellCheck={false}
                 />
-                {parsedMatches.length > 0 && (
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setMatchesViewTab('table')}
-                      className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
-                    >
-                      <ClipboardList className="w-4 h-4" />
-                      <span>Visualizza Tabella Partite con Colori ({parsedMatches.length})</span>
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 
@@ -4064,14 +3968,6 @@ export default function App() {
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <span>I dati inseriti rimangono memorizzati automaticamente nel browser e sincronizzati con il database.</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setCurrentPage('masaniello')}
-                className="text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Torna al Masaniello</span>
-              </button>
             </div>
           </section>
         </main>
@@ -4079,22 +3975,12 @@ export default function App() {
         /* Third Page: Importa da betfair (OddsPapi) */
         <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 space-y-5">
           <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 sm:p-6 space-y-5">
-            {/* Intestazione con pulsante per tornare a Elenco Partite */}
+            {/* Intestazione */}
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage('elenco_partite')}
-                  className="text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Torna a Elenco Partite</span>
-                </button>
-                <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                  <Download className="w-5 h-5 text-amber-400" />
-                  <span>Importa da betfair</span>
-                </h2>
-              </div>
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <Download className="w-5 h-5 text-amber-400" />
+                <span>Importa da betfair</span>
+              </h2>
             </div>
 
             {/* Barra superiore: Campo Data | Campo API Key | Pulsante IMPORTA */}
@@ -4972,6 +4858,72 @@ export default function App() {
       <footer className="border-t border-slate-800/80 bg-slate-900/60 py-4 px-4 text-center text-xs text-slate-400 font-mono">
         Versione del 31/10/26 ore 01:11
       </footer>
+
+      {/* Barra di navigazione fissa in basso */}
+      <nav
+        aria-label="Navigazione principale"
+        className="fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur border-t border-slate-800 shadow-2xl"
+      >
+        <div className="max-w-7xl mx-auto grid grid-cols-4 h-16">
+          <button
+            type="button"
+            onClick={() => setCurrentPage('masaniello')}
+            className={`flex flex-col items-center justify-center gap-1 text-[11px] transition-colors cursor-pointer border-t-2 ${
+              currentPage === 'masaniello'
+                ? 'text-blue-400 bg-blue-600/10 border-blue-500 font-semibold'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border-transparent font-medium'
+            }`}
+          >
+            <Calculator className="w-5 h-5" />
+            <span>Masa</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setCurrentPage('elenco_partite');
+              setMatchesViewTab('table');
+            }}
+            className={`flex flex-col items-center justify-center gap-1 text-[11px] transition-colors cursor-pointer border-t-2 ${
+              currentPage === 'elenco_partite' && matchesViewTab === 'table'
+                ? 'text-blue-400 bg-blue-600/10 border-blue-500 font-semibold'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border-transparent font-medium'
+            }`}
+          >
+            <ClipboardList className="w-5 h-5" />
+            <span>Partite</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setCurrentPage('elenco_partite');
+              setMatchesViewTab('text');
+            }}
+            className={`flex flex-col items-center justify-center gap-1 text-[11px] transition-colors cursor-pointer border-t-2 ${
+              currentPage === 'elenco_partite' && matchesViewTab === 'text'
+                ? 'text-blue-400 bg-blue-600/10 border-blue-500 font-semibold'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border-transparent font-medium'
+            }`}
+          >
+            <FileCode className="w-5 h-5" />
+            <span>Mod.Elenco</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCurrentPage('importa_betfair')}
+            className={`flex flex-col items-center justify-center gap-1 text-[11px] transition-colors cursor-pointer border-t-2 ${
+              currentPage === 'importa_betfair'
+                ? 'text-blue-400 bg-blue-600/10 border-blue-500 font-semibold'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border-transparent font-medium'
+            }`}
+          >
+            <Download className="w-5 h-5" />
+            <span>Palinsesto</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
