@@ -493,19 +493,22 @@ function getRomeOffsetMs(utcMs: number): number {
   return romeAsUtc - utcMs;
 }
 
-function getRomeDayRangeUtcWithMargin(ymd: string): { fromIso: string; toIso: string } {
+function getRomeExactDayRangeUtc(ymd: string): { fromIso: string; toIso: string } {
   const [y, m, d] = ymd.split('-').map(Number);
   const approxStartUtc = Date.UTC(y, m - 1, d, 0, 0, 0);
-  const startOffset = getRomeOffsetMs(approxStartUtc);
-  const romeStartUtc = approxStartUtc - startOffset;
+  const startOffset1 = getRomeOffsetMs(approxStartUtc);
+  const romeStartGuess = approxStartUtc - startOffset1;
+  const startOffset2 = getRomeOffsetMs(romeStartGuess);
+  const romeStartUtc = approxStartUtc - startOffset2;
 
-  const approxEndUtc = Date.UTC(y, m - 1, d, 23, 59, 59);
-  const endOffset = getRomeOffsetMs(approxEndUtc);
-  const romeEndUtc = approxEndUtc - endOffset;
+  const approxNextDayUtc = Date.UTC(y, m - 1, d + 1, 0, 0, 0);
+  const nextOffset1 = getRomeOffsetMs(approxNextDayUtc);
+  const romeNextDayGuess = approxNextDayUtc - nextOffset1;
+  const nextOffset2 = getRomeOffsetMs(romeNextDayGuess);
+  const romeNextDayStartUtc = approxNextDayUtc - nextOffset2;
 
-  const marginMs = 4 * 60 * 60 * 1000;
-  const fromIso = new Date(romeStartUtc - marginMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const toIso = new Date(romeEndUtc + marginMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const fromIso = new Date(romeStartUtc).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const toIso = new Date(romeNextDayStartUtc).toISOString().replace(/\.\d{3}Z$/, 'Z');
   return { fromIso, toIso };
 }
 
@@ -838,12 +841,14 @@ export default function App() {
     setBetfairError('');
 
     try {
-      const { fromIso, toIso } = getRomeDayRangeUtcWithMargin(trimmedDate);
+      const { fromIso, toIso } = getRomeExactDayRangeUtc(trimmedDate);
       const params = new URLSearchParams({
         sportId: '10',
         apiKey: trimmedKey,
         from: fromIso,
         to: toIso,
+        bookmakers: 'betfair-ex',
+        language: 'en',
       });
 
       const response = await fetch(`https://api.oddspapi.io/v4/fixtures?${params.toString()}`);
@@ -871,47 +876,55 @@ export default function App() {
         ? payload.fixtures
         : Array.isArray(payload?.results)
         ? payload.results
+        : Array.isArray(payload?.items)
+        ? payload.items
+        : Array.isArray(payload?.matches)
+        ? payload.matches
         : [];
 
       const rows: BetfairImportedRow[] = [];
+      const seenIds = new Set<string>();
 
       for (let i = 0; i < rawFixtures.length; i++) {
         const f = rawFixtures[i];
         if (!f || typeof f !== 'object') continue;
 
-        const statusName = String(f.statusName || '').toLowerCase();
-        if (f.statusId === 3 || statusName === 'cancelled' || statusName === 'canceled') {
-          continue;
-        }
+        const rawId = f.fixtureId ?? f.id;
+        const fixtureId = rawId !== undefined && rawId !== null ? String(rawId).trim() : '';
+        if (!fixtureId) continue;
 
-        const startIso = f.startTime || f.start_time || f.date;
+        if (seenIds.has(fixtureId)) continue;
+
+        const startIso = f.startTime ?? f.start_time ?? f.date;
         if (!startIso) continue;
 
         const romeInfo = formatDateTimeRome(String(startIso));
         if (!romeInfo || romeInfo.ymd !== trimmedDate) continue;
 
+        seenIds.add(fixtureId);
+
         const home = String(
-          f.participant1Name || f.homeTeam || f.home || f.participant1?.name || ''
+          f.participant1Name || f.homeTeamName || f.homeTeam || f.home || f.participant1?.name || ''
         ).trim();
         const away = String(
-          f.participant2Name || f.awayTeam || f.away || f.participant2?.name || ''
+          f.participant2Name || f.awayTeamName || f.awayTeam || f.away || f.participant2?.name || ''
         ).trim();
-        if (!home || !away) continue;
+        const partita = home && away ? `${home} - ${away}` : home || away || '';
 
         const tournament = String(f.tournamentName || f.tournament?.name || '').trim();
         const category = String(f.categoryName || f.category?.name || '').trim();
         const campionato =
           tournament && category && !tournament.toLowerCase().includes(category.toLowerCase())
-            ? `${tournament} - ${category}`
+            ? `${tournament} (${category})`
             : tournament || category || '';
 
         rows.push({
-          id: String(f.fixtureId || f.id || `${trimmedDate}-${i}`),
+          id: fixtureId,
           data: romeInfo.data,
           ora: romeInfo.ora,
           segno: 'O 0.5',
           prob: '90%',
-          partita: `${home} - ${away}`,
+          partita,
           campionato,
           quota: '1.20',
           value: '+5%',
@@ -919,7 +932,7 @@ export default function App() {
         });
       }
 
-      rows.sort((a, b) => a.timestampMs - b.timestampMs);
+      rows.sort((a, b) => a.ora.localeCompare(b.ora) || a.timestampMs - b.timestampMs);
       setBetfairFixtures(rows);
 
       if (rows.length === 0) {
