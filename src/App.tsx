@@ -288,18 +288,13 @@ function isTeamInMasaniello(matchStr: string, eventsList: MasanielloEvent[]): bo
 
 // Restituisce la classe di colore del carattere in base a:
 // 1) Se una squadra è presente nel Masaniello -> ROSSO
-// 2) Probabilità < 62% -> GRIGIO
-// 3) Probabilità 62% - 64% -> BIANCO
-// 4) Probabilità > 64% e <= 66% -> GIALLO
-// 5) Probabilità > 66% e <= 68% -> AZZURRO
-// 6) Probabilità > 68% -> VERDE
-// 7) Non espressa -> BIANCO (default)
+// 2) Altrimenti -> BIANCO (nessun colore legato alla % di probabilità)
 function getMatchColorInfo(
   matchItem: ParsedMatchItem,
   eventsList: MasanielloEvent[]
 ): {
   textColorClass: string;
-  colorName: 'red' | 'gray' | 'white' | 'yellow' | 'azzurro' | 'green';
+  colorName: 'red' | 'white';
   isInMasaniello: boolean;
 } {
   const isPresentInMasa = isTeamInMasaniello(matchItem.match, eventsList);
@@ -311,46 +306,9 @@ function getMatchColorInfo(
     };
   }
 
-  const p = matchItem.probability;
-  if (p === null || p === undefined || isNaN(p)) {
-    return {
-      textColorClass: 'text-white',
-      colorName: 'white',
-      isInMasaniello: false,
-    };
-  }
-
-  if (p < 62) {
-    return {
-      textColorClass: 'text-slate-400',
-      colorName: 'gray',
-      isInMasaniello: false,
-    };
-  }
-  if (p <= 64) {
-    return {
-      textColorClass: 'text-white',
-      colorName: 'white',
-      isInMasaniello: false,
-    };
-  }
-  if (p <= 66) {
-    return {
-      textColorClass: 'text-yellow-400 font-medium',
-      colorName: 'yellow',
-      isInMasaniello: false,
-    };
-  }
-  if (p <= 68) {
-    return {
-      textColorClass: 'text-sky-400 font-medium',
-      colorName: 'azzurro',
-      isInMasaniello: false,
-    };
-  }
   return {
-    textColorClass: 'text-emerald-400 font-medium',
-    colorName: 'green',
+    textColorClass: 'text-white',
+    colorName: 'white',
     isInMasaniello: false,
   };
 }
@@ -4217,7 +4175,7 @@ export default function App() {
                           <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs text-slate-200">{row.data}</td>
                           <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs text-slate-200">{row.ora}</td>
                           <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs font-semibold text-blue-300">{row.segno}</td>
-                          <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs text-emerald-400 font-semibold">{row.prob}</td>
+                          <td className="py-2.5 px-3 font-mono whitespace-nowrap text-xs text-white font-semibold">{row.prob}</td>
                           <td className="py-2.5 px-3 font-medium text-xs sm:text-sm text-white">{row.partita}</td>
                           <td className="py-2.5 px-3 text-xs text-slate-300">{row.campionato || '--'}</td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-white">{row.quota}</td>
