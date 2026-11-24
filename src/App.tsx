@@ -9,6 +9,7 @@ import {
   type SessionState,
   type PartitaItem,
 } from './lib/api';
+import { PWAInstallButton } from './pwa/PWAInstallButton';
 import {
   Trophy,
   AlertCircle,
@@ -632,6 +633,13 @@ function calculatePotentialPayout(
 // Lo stake replica esattamente il valore atteso della cassa:
 // Stake = Ck * (P_win - P_loss) / [ Qk * P_cur ]
 // Per C1 = 100, N = 20, K = 11, Q = 1.60: Stake 1 = € 9,36
+function normalizeStakeToStep(rawStake: number): number {
+  if (!Number.isFinite(rawStake) || rawStake <= 0) return 0;
+  const stepped = Math.round(rawStake * 10) / 10;
+  const normalized = Math.max(1.0, stepped);
+  return Math.round(normalized * 100) / 100;
+}
+
 function calculateStake(
   currentBankroll: number,
   eventOdds: number,
@@ -645,7 +653,7 @@ function calculateStake(
 
   // Se dobbiamo vincere TUTTI gli eventi rimanenti (Ur === Nr):
   if (remainingWins === remainingEventsCount) {
-    return Math.round(currentBankroll * 100) / 100;
+    return normalizeStakeToStep(currentBankroll);
   }
 
   const q = Math.max(1.0001, eventOdds);
@@ -659,7 +667,100 @@ function calculateStake(
   if (pCur <= 0) return 0;
 
   const stake = currentBankroll * (pWin - pLoss) / (q * pCur);
-  return Math.round(stake * 100) / 100;
+  return normalizeStakeToStep(stake);
+}
+
+interface FreeNumericInputProps {
+  value: number;
+  onCommit: (val: number) => void;
+  min?: number;
+  max?: number;
+  allowDecimal?: boolean;
+  decimals?: number;
+  disabled?: boolean;
+  className?: string;
+  title?: string;
+  placeholder?: string;
+  required?: boolean;
+}
+
+function FreeNumericInput({
+  value,
+  onCommit,
+  min,
+  max,
+  allowDecimal = true,
+  decimals,
+  disabled = false,
+  className = '',
+  title,
+  placeholder,
+  required = false,
+}: FreeNumericInputProps) {
+  const formatVal = (v: number): string => {
+    if (!Number.isFinite(v)) return '';
+    return decimals !== undefined ? v.toFixed(decimals) : String(v);
+  };
+
+  const [draft, setDraft] = useState<string>(() => formatVal(value));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(formatVal(value));
+    }
+  }, [value, isFocused, decimals]);
+
+  const commitDraft = () => {
+    const normalized = draft.trim().replace(',', '.');
+    if (normalized === '') {
+      setDraft(formatVal(value));
+      return;
+    }
+    const parsed = allowDecimal ? parseFloat(normalized) : parseInt(normalized, 10);
+    if (!Number.isFinite(parsed)) {
+      setDraft(formatVal(value));
+      return;
+    }
+    let finalVal = parsed;
+    if (min !== undefined && finalVal < min) finalVal = min;
+    if (max !== undefined && finalVal > max) finalVal = max;
+    if (decimals !== undefined) {
+      const factor = Math.pow(10, decimals);
+      finalVal = Math.round(finalVal * factor) / factor;
+    } else if (!allowDecimal) {
+      finalVal = Math.round(finalVal);
+    }
+    onCommit(finalVal);
+    setDraft(formatVal(finalVal));
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode={allowDecimal ? 'decimal' : 'numeric'}
+      disabled={disabled}
+      value={draft}
+      placeholder={placeholder}
+      required={required}
+      title={title}
+      className={className}
+      onFocus={() => setIsFocused(true)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        setIsFocused(false);
+        commitDraft();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitDraft();
+          setIsFocused(false);
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
 }
 
 export default function App() {
@@ -1121,11 +1222,8 @@ export default function App() {
   };
 
 
-  // Helper to format currency/stake based on roundStakes toggle
+  // Helper to format currency/stake (sempre formato 0.00 coerente con min 1.00 € e step 0.10 €)
   const formatStake = (val: number): string => {
-    if (roundStakes) {
-      return Math.round(val).toString();
-    }
     return val.toFixed(2);
   };
 
@@ -2804,6 +2902,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <PWAInstallButton />
+
             {/* Pulsante Ingranaggio Configurazione Supabase */}
             <button
               type="button"
@@ -2964,13 +3064,12 @@ export default function App() {
                 Cassa Iniziale (€)
               </label>
               <div className="relative">
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
+                <FreeNumericInput
+                  min={1}
+                  allowDecimal
                   disabled={isProgressionActive}
                   value={config.initialBankroll}
-                  onChange={(e) => setConfig({ ...config, initialBankroll: Math.max(1, parseFloat(e.target.value) || 0) })}
+                  onCommit={(val) => setConfig((prev) => ({ ...prev, initialBankroll: val }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   required
                 />
@@ -2982,19 +3081,18 @@ export default function App() {
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
                 Eventi Totali (N)
               </label>
-              <input
-                type="number"
-                min="2"
-                max="50"
+              <FreeNumericInput
+                min={2}
+                max={50}
+                allowDecimal={false}
                 disabled={isProgressionActive}
                 value={config.totalEvents}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value) || 2;
-                  setConfig({
-                    ...config,
+                onCommit={(val) => {
+                  setConfig((prev) => ({
+                    ...prev,
                     totalEvents: val,
-                    expectedWins: Math.min(config.expectedWins, val - 1 || 1),
-                  });
+                    expectedWins: Math.min(prev.expectedWins, Math.max(1, val - 1)),
+                  }));
                 }}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 required
@@ -3005,13 +3103,13 @@ export default function App() {
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
                 Eventi Attesi / Vinti (K)
               </label>
-              <input
-                type="number"
-                min="1"
+              <FreeNumericInput
+                min={1}
                 max={Math.max(1, config.totalEvents - 1)}
+                allowDecimal={false}
                 disabled={isProgressionActive}
                 value={config.expectedWins}
-                onChange={(e) => setConfig({ ...config, expectedWins: parseInt(e.target.value) || 1 })}
+                onCommit={(val) => setConfig((prev) => ({ ...prev, expectedWins: val }))}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 required
               />
@@ -3021,14 +3119,14 @@ export default function App() {
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
                 Quota Media
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min="1.05"
-                max="20"
+              <FreeNumericInput
+                min={1.05}
+                max={20}
+                allowDecimal
+                decimals={2}
                 disabled={isProgressionActive}
                 value={config.averageOdds}
-                onChange={(e) => setConfig({ ...config, averageOdds: parseFloat(e.target.value) || 2.00 })}
+                onCommit={(val) => setConfig((prev) => ({ ...prev, averageOdds: val }))}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 required
               />
@@ -3387,14 +3485,14 @@ export default function App() {
                           >
                             -
                           </button>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="1.01"
+                          <FreeNumericInput
+                            min={1.01}
+                            allowDecimal
+                            decimals={2}
                             disabled={ev.status !== 'pending'}
                             value={ev.odds}
-                            onChange={(e) => updateEvent(index, { odds: Math.max(1.01, parseFloat(e.target.value) || 1.01) })}
-                            className={`w-12 text-center border rounded py-1.5 px-0.5 text-xs font-mono transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                            onCommit={(val) => updateEvent(index, { odds: val })}
+                            className={`w-12 text-center border rounded py-1.5 px-0.5 text-xs font-mono transition-colors ${
                               ev.status !== 'pending'
                                 ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed select-none'
                                 : 'bg-slate-950/70 border-slate-800 text-white focus:outline-none focus:border-blue-500'
@@ -3711,14 +3809,14 @@ export default function App() {
                       >
                         -
                       </button>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="1.01"
+                      <FreeNumericInput
+                        min={1.01}
+                        allowDecimal
+                        decimals={2}
                         disabled={ev.status !== 'pending'}
                         value={ev.odds}
-                        onChange={(e) => updateEvent(index, { odds: Math.max(1.01, parseFloat(e.target.value) || 1.01) })}
-                        className={`w-11 text-center border rounded py-1 px-0 text-[11px] font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                        onCommit={(val) => updateEvent(index, { odds: val })}
+                        className={`w-11 text-center border rounded py-1 px-0 text-[11px] font-mono ${
                           ev.status !== 'pending'
                             ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed'
                             : 'bg-slate-950/70 border-slate-800 text-white focus:outline-none focus:border-blue-500'
